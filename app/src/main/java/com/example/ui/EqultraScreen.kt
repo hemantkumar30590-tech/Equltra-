@@ -77,12 +77,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import android.view.HapticFeedbackConstants
+import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -133,6 +138,10 @@ fun EqultraScreen(
     val voiceRmsLevel by viewModel.voiceRmsLevel.collectAsStateWithLifecycle()
     val voiceLiveTranscript by viewModel.voiceLiveTranscript.collectAsStateWithLifecycle()
     val voiceStatusBadge by viewModel.voiceStatusBadge.collectAsStateWithLifecycle()
+    val isHapticsEnabled by viewModel.isHapticsEnabled.collectAsStateWithLifecycle()
+    val lastHapticEventLabel by viewModel.lastHapticEventLabel.collectAsStateWithLifecycle()
+    val hapticFeedback = LocalHapticFeedback.current
+    val localView = LocalView.current
 
     if (uiState.selectedTab != 0) {
         BackHandler {
@@ -260,7 +269,13 @@ fun EqultraScreen(
                     isPlayingTest = isPlayingTest,
                     isVoiceListening = isVoiceListening,
                     hardwareStatus = hardwareStatus,
-                    onToggleMaster = viewModel::toggleMasterEnabled,
+                    onToggleMaster = {
+                        if (isHapticsEnabled) {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            localView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                        }
+                        viewModel.toggleMasterEnabled()
+                    },
                     onToggleBackgroundService = { enableBg ->
                         if (enableBg && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
                             val granted = androidx.core.content.ContextCompat.checkSelfPermission(
@@ -319,10 +334,25 @@ fun EqultraScreen(
                             }
                         },
                         onBandGainChanged = viewModel::updateBandGain,
-                        onSelectPreset = viewModel::applyPreset,
-                        onResetFlat = viewModel::resetToFlat,
+                        onSelectPreset = { preset ->
+                            if (isHapticsEnabled) {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                localView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                            }
+                            viewModel.applyPreset(preset, toggleIfAlreadyActive = true)
+                        },
+                        onResetFlat = {
+                            if (isHapticsEnabled) {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                localView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                            }
+                            viewModel.resetToFlat()
+                        },
                         onOpenSavePreset = { viewModel.setSavePresetDialogVisible(true) },
                         onQuickAiScenario = { scenarioPrompt ->
+                            if (isHapticsEnabled) {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
                             viewModel.generateAndApplyAiAutoEq(
                                 overridePrompt = scenarioPrompt,
                                 saveToLibrary = true
@@ -351,7 +381,10 @@ fun EqultraScreen(
                                 "AI Auto-EQ PRO Mode Locked 🔒",
                                 Toast.LENGTH_SHORT
                             ).show()
-                        }
+                        },
+                        isHapticsEnabled = isHapticsEnabled,
+                        lastHapticEventLabel = lastHapticEventLabel,
+                        onToggleHaptics = viewModel::toggleHapticsEnabled
                     )
 
                     1 -> BassAndSpatialDspTab(
@@ -364,21 +397,42 @@ fun EqultraScreen(
                         onBassChanged = viewModel::updateBassBoost,
                         onSpatialChanged = viewModel::updateSpatialLevel,
                         onReverbChanged = viewModel::updateReverbLevel,
-                        onReverbRoomChanged = viewModel::updateReverbRoom,
+                        onReverbRoomChanged = { room ->
+                            if (isHapticsEnabled) {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                            viewModel.updateReverbRoom(room)
+                        },
                         onPreampChanged = viewModel::updatePreampDb,
-                        onToggleLimiter = viewModel::toggleSoftLimiter
+                        onToggleLimiter = {
+                            if (isHapticsEnabled) {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
+                            viewModel.toggleSoftLimiter()
+                        }
                     )
 
                     2 -> DevicePresetsTab(
                         devicePresets = viewModel.devicePresets,
                         searchQuery = uiState.deviceSearchQuery,
                         activePresetName = uiState.activePresetName,
+                        isMasterEnabled = uiState.isMasterEnabled,
+                        isHapticsEnabled = isHapticsEnabled,
                         onSearchQueryChanged = viewModel::updateDeviceSearchQuery,
                         onApplyDevicePreset = { device ->
-                            viewModel.applyPreset(device)
+                            val wasAlreadyApplied = uiState.activePresetName.equals(device.name, ignoreCase = true) && uiState.isMasterEnabled
+                            if (isHapticsEnabled) {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                localView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                            }
+                            viewModel.applyPreset(device, toggleIfAlreadyActive = true)
                             Toast.makeText(
                                 context,
-                                "Applied ${device.name} 10-Band EQ!",
+                                if (wasAlreadyApplied) {
+                                    "Toggled OFF ${device.name} → Flat Bypass (Haptic Snap)"
+                                } else {
+                                    "Applied ${device.name} 10-Band EQ! (Tactile Haptics)"
+                                },
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
@@ -388,8 +442,14 @@ fun EqultraScreen(
                         presets = presets,
                         importedPresets = importedPresets,
                         activePresetName = uiState.activePresetName,
-                        onSelectPreset = {
-                            viewModel.applyPreset(it)
+                        isMasterEnabled = uiState.isMasterEnabled,
+                        isHapticsEnabled = isHapticsEnabled,
+                        onSelectPreset = { preset ->
+                            if (isHapticsEnabled) {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                localView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                            }
+                            viewModel.applyPreset(preset, toggleIfAlreadyActive = true)
                         },
                         onDeleteCustomPreset = viewModel::deleteCustomPreset,
                         onOpenSaveDialog = { viewModel.setSavePresetDialogVisible(true) },
@@ -829,7 +889,10 @@ private fun TenBandEqualizerTab(
     onOpenVoiceControl: () -> Unit = {},
     onToggleLiveMic: () -> Unit = {},
     onExecuteVoiceCommand: (String) -> Unit = {},
-    onLockProMode: () -> Unit = {}
+    onLockProMode: () -> Unit = {},
+    isHapticsEnabled: Boolean = true,
+    lastHapticEventLabel: String = "TACTILE HAPTICS READY",
+    onToggleHaptics: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -869,6 +932,58 @@ private fun TenBandEqualizerTab(
 
         Spacer(modifier = Modifier.height(10.dp))
 
+        // Tactile Preset Haptics Header & Toggle Bar
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "EQUALIZER PRESETS (SELECT / TOGGLE)",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary,
+                fontWeight = FontWeight.Bold
+            )
+            Surface(
+                color = if (isHapticsEnabled) ElectricCyan.copy(alpha = 0.14f) else ObsidianCard,
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (isHapticsEnabled) ElectricCyan.copy(alpha = 0.7f) else ObsidianBorder
+                ),
+                modifier = Modifier
+                    .clickable(onClick = onToggleHaptics)
+                    .testTag("haptic_feedback_toggle_chip")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Vibration,
+                        contentDescription = "Toggle Preset Haptic Feedback",
+                        tint = if (isHapticsEnabled) ElectricCyan else TextMuted,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Text(
+                        text = if (isHapticsEnabled) {
+                            lastHapticEventLabel.take(30)
+                        } else {
+                            "HAPTICS OFF"
+                        },
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                        color = if (isHapticsEnabled) ElectricCyan else TextMuted,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
         // Quick Preset Selector Strip (All 9 built-in + custom presets)
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -876,14 +991,14 @@ private fun TenBandEqualizerTab(
             modifier = Modifier.fillMaxWidth()
         ) {
             items(presets, key = { "${it.id}_${it.name}" }) { preset ->
-                val isSelected = uiState.activePresetName.equals(preset.name, ignoreCase = true)
+                val isSelected = uiState.activePresetName.equals(preset.name, ignoreCase = true) && uiState.isMasterEnabled
                 FilterChip(
                     selected = isSelected,
                     onClick = { onSelectPreset(preset) },
                     modifier = Modifier.testTag("preset_chip_${preset.name}"),
                     label = {
                         Text(
-                            text = preset.name,
+                            text = if (isSelected) "${preset.name} • ON" else preset.name,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                         )

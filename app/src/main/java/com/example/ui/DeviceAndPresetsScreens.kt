@@ -53,6 +53,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -70,7 +72,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -96,9 +100,12 @@ fun DevicePresetsTab(
     devicePresets: List<EqPresetEntity>,
     searchQuery: String,
     activePresetName: String,
+    isMasterEnabled: Boolean = true,
+    isHapticsEnabled: Boolean = true,
     onSearchQueryChanged: (String) -> Unit,
     onApplyDevicePreset: (EqPresetEntity) -> Unit
 ) {
+    val hapticFeedback = LocalHapticFeedback.current
     var selectedBrandFilter by remember { mutableStateOf("All") }
     val brandFilters = listOf("All", "Apple", "Sony", "Samsung", "Bose", "Sennheiser", "Google", "JBL", "OnePlus", "Nothing", "Boat")
 
@@ -201,7 +208,12 @@ fun DevicePresetsTab(
                 val selected = selectedBrandFilter == brand
                 FilterChip(
                     selected = selected,
-                    onClick = { selectedBrandFilter = brand },
+                    onClick = {
+                        if (isHapticsEnabled) {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                        selectedBrandFilter = brand
+                    },
                     modifier = Modifier.testTag("brand_chip_$brand"),
                     label = {
                         Text(
@@ -235,7 +247,7 @@ fun DevicePresetsTab(
             modifier = Modifier.fillMaxSize()
         ) {
             items(filteredDevices, key = { it.id }) { device ->
-                val isApplied = activePresetName.equals(device.name, ignoreCase = true)
+                val isApplied = activePresetName.equals(device.name, ignoreCase = true) && isMasterEnabled
                 DevicePresetCard(
                     device = device,
                     isApplied = isApplied,
@@ -511,6 +523,8 @@ fun PresetsAndImportExportTab(
     presets: List<EqPresetEntity>,
     importedPresets: List<EqPresetEntity>,
     activePresetName: String,
+    isMasterEnabled: Boolean = true,
+    isHapticsEnabled: Boolean = true,
     onSelectPreset: (EqPresetEntity) -> Unit,
     onDeleteCustomPreset: (EqPresetEntity) -> Unit,
     onOpenSaveDialog: () -> Unit,
@@ -809,7 +823,7 @@ fun PresetsAndImportExportTab(
                 items(importedPresets, key = { "import_${it.id}_${it.name}" }) { preset ->
                     PresetItemCard(
                         preset = preset,
-                        isSelected = activePresetName.equals(preset.name, ignoreCase = true),
+                        isSelected = activePresetName.equals(preset.name, ignoreCase = true) && isMasterEnabled,
                         badgeText = "IMPORTED",
                         badgeColor = NeonMagenta,
                         onSelect = { onSelectPreset(preset) },
@@ -832,7 +846,7 @@ fun PresetsAndImportExportTab(
             items(presets, key = { "preset_${it.id}_${it.name}" }) { preset ->
                 PresetItemCard(
                     preset = preset,
-                    isSelected = activePresetName.equals(preset.name, ignoreCase = true),
+                    isSelected = activePresetName.equals(preset.name, ignoreCase = true) && isMasterEnabled,
                     badgeText = preset.category.uppercase(Locale.US),
                     badgeColor = ElectricCyan,
                     onSelect = { onSelectPreset(preset) },
@@ -900,7 +914,10 @@ private fun PresetItemCard(
                     }
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     Text(
                         text = badgeText,
                         style = MaterialTheme.typography.labelSmall,
@@ -908,6 +925,17 @@ private fun PresetItemCard(
                         modifier = Modifier
                             .background(AmoledBlack, RoundedCornerShape(6.dp))
                             .padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                    Switch(
+                        checked = isSelected,
+                        onCheckedChange = { onSelect() },
+                        modifier = Modifier.testTag("toggle_preset_${preset.name}"),
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = AmoledBlack,
+                            checkedTrackColor = ElectricCyan,
+                            uncheckedThumbColor = TextSecondary,
+                            uncheckedTrackColor = AmoledBlack
+                        )
                     )
                     if (onDelete != null) {
                         IconButton(

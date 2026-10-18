@@ -138,6 +138,13 @@ class PresetManager(
         activeStateBox.edit().putBoolean(KEY_AI_PRO_UNLOCKED, unlocked).apply()
     }
 
+    fun isHapticsEnabled(): Boolean =
+        activeStateBox.getBoolean(KEY_HAPTICS_ENABLED, true)
+
+    fun setHapticsEnabled(enabled: Boolean) {
+        activeStateBox.edit().putBoolean(KEY_HAPTICS_ENABLED, enabled).apply()
+    }
+
     fun verifyOwnerProAccess(input: String): Boolean {
         val normalized = input.trim().lowercase(Locale.US)
         return normalized in OWNER_VALID_KEYS
@@ -174,6 +181,7 @@ class PresetManager(
         private const val KEY_ENABLED = "enabled"
         private const val KEY_BG_SERVICE_ENABLED = "bg_service_enabled"
         private const val KEY_AI_PRO_UNLOCKED = "ai_pro_unlocked"
+        private const val KEY_HAPTICS_ENABLED = "haptics_enabled"
         private const val KEY_ACTIVE_PRESET = "preset"
         private const val KEY_BANDS_CSV = "bands_csv"
         private const val KEY_BASS_BOOST = "bass_boost"

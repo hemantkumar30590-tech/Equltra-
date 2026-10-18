@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:file_picker/file_picker.dart';
@@ -149,6 +150,7 @@ class EqNotifier extends StateNotifier<EqState> {
   }
 
   void selectTab(int index) {
+    HapticFeedback.selectionClick();
     state = state.copyWith(selectedTab: index);
   }
 
@@ -157,6 +159,11 @@ class EqNotifier extends StateNotifier<EqState> {
   }
 
   void toggleEnabled(bool value) {
+    if (value) {
+      HapticFeedback.mediumImpact();
+    } else {
+      HapticFeedback.lightImpact();
+    }
     state = state.copyWith(enabled: value);
     _persistCurrentState();
     Equalizer.setEnabled(value);
@@ -164,6 +171,7 @@ class EqNotifier extends StateNotifier<EqState> {
   }
 
   Future<void> toggleBackgroundService(bool enabled) async {
+    HapticFeedback.selectionClick();
     state = state.copyWith(backgroundServiceEnabled: enabled);
     if (enabled) {
       await _bgService.startBackgroundService(
@@ -176,15 +184,46 @@ class EqNotifier extends StateNotifier<EqState> {
   }
 
   void setBand(int index, double gainDb) {
+    final oldGain = state.bands[index];
+    final clamped = gainDb.clamp(-15.0, 15.0);
+    if ((oldGain < 0 && clamped >= 0) || (oldGain > 0 && clamped <= 0)) {
+      HapticFeedback.selectionClick();
+    }
     final updated = List<double>.from(state.bands);
-    updated[index] = gainDb.clamp(-15.0, 15.0);
+    updated[index] = clamped;
     state = state.copyWith(bands: updated, activePreset: 'Custom');
     _persistCurrentState();
-    Equalizer.setBandLevel(index, (gainDb * 100).round());
+    Equalizer.setBandLevel(index, (clamped * 100).round());
   }
 
   void applyProfile(SoundProfile profile) {
+    final isAlreadyActive =
+        state.activePreset.toLowerCase() == profile.name.toLowerCase() &&
+        state.enabled;
+    if (isAlreadyActive && profile.name.toLowerCase() != 'flat') {
+      HapticFeedback.lightImpact();
+      final flat = PresetManager.builtInPresets.first;
+      state = state.copyWith(
+        activePreset: flat.name,
+        bands: List<double>.from(flat.bands),
+        bassBoost: flat.bassBoost,
+        reverb: flat.reverb,
+        reverbRoom: flat.reverbRoom,
+        spatial: flat.spatial,
+        preampDb: flat.preampDb,
+      );
+      _persistCurrentState();
+      _syncDsp();
+      return;
+    }
+
+    if (profile.bassBoost >= 0.70) {
+      HapticFeedback.heavyImpact();
+    } else {
+      HapticFeedback.mediumImpact();
+    }
     state = state.copyWith(
+      enabled: true,
       activePreset: profile.name,
       bands: List<double>.from(profile.bands),
       bassBoost: profile.bassBoost,

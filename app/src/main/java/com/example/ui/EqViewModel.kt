@@ -15,6 +15,7 @@ import com.example.data.PresetManager
 import com.example.dsp.AiAutoEqEngine
 import com.example.dsp.AiVoiceControlEngine
 import com.example.dsp.AudioDspEngine
+import com.example.dsp.EqHapticFeedbackManager
 import com.example.dsp.VoiceControlAction
 import com.example.service.EqForegroundService
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -62,6 +63,9 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     private val presetManager: PresetManager
     private val dspEngine: AudioDspEngine
     private val voiceEngine: AiVoiceControlEngine
+    val hapticManager: EqHapticFeedbackManager
+
+    private var lastSelectedNonFlatPreset: EqPresetEntity = EqPresetEntity.BUILT_IN_PRESETS[1]
 
     private val _uiState: MutableStateFlow<EqUiState>
     val uiState: StateFlow<EqUiState>
@@ -88,6 +92,10 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     val voiceLiveTranscript: StateFlow<String>
     val voiceStatusBadge: StateFlow<String>
 
+    val isHapticsEnabled: StateFlow<Boolean>
+    val lastHapticEventLabel: StateFlow<String>
+    val hapticTriggerCount: StateFlow<Int>
+
     private val serviceReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == EqForegroundService.ACTION_SERVICE_STATE_CHANGED) {
@@ -100,12 +108,17 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
         val db = EqDatabase.getInstance(application)
         presetManager = PresetManager(application, db.eqPresetDao())
         dspEngine = AudioDspEngine(application, viewModelScope)
+        hapticManager = EqHapticFeedbackManager(application)
+        hapticManager.setHapticsEnabled(presetManager.isHapticsEnabled())
         voiceEngine = AiVoiceControlEngine(application, viewModelScope) { recognizedSpeech ->
             executeVoiceCommand(recognizedSpeech)
         }
         devicePresets = presetManager.devicePresets
 
         val restored = presetManager.loadSavedActiveProfile()
+        if (!restored.name.equals("Flat", ignoreCase = true)) {
+            lastSelectedNonFlatPreset = restored
+        }
         val bgEnabled = presetManager.isBackgroundServiceEnabled()
         val proUnlocked = presetManager.isAiProUnlocked()
         _uiState = MutableStateFlow(
@@ -162,6 +175,10 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
         voiceLiveTranscript = voiceEngine.liveTranscript
         voiceStatusBadge = voiceEngine.voiceStatusBadge
 
+        isHapticsEnabled = hapticManager.isHapticsEnabled
+        lastHapticEventLabel = hapticManager.lastHapticEventLabel
+        hapticTriggerCount = hapticManager.hapticTriggerCount
+
         runCatching {
             ContextCompat.registerReceiver(
                 application,
@@ -204,7 +221,17 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectTab(tabIndex: Int) {
-        _uiState.update { it.copy(selectedTab = tabIndex.coerceIn(0, 4)) }
+        val clamped = tabIndex.coerceIn(0, 4)
+        if (_uiState.value.selectedTab != clamped) {
+            hapticManager.onControlTick("Tab $clamped")
+        }
+        _uiState.update { it.copy(selectedTab = clamped) }
+    }
+
+    fun toggleHapticsEnabled() {
+        val next = !isHapticsEnabled.value
+        presetManager.setHapticsEnabled(next)
+        hapticManager.setHapticsEnabled(next)
     }
 
     fun updateDeviceSearchQuery(query: String) {
@@ -212,18 +239,25 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleMasterEnabled() {
-        _uiState.update { it.copy(isMasterEnabled = !it.isMasterEnabled) }
+        val nextEnabled = !_uiState.value.isMasterEnabled
+        _uiState.update { it.copy(isMasterEnabled = nextEnabled) }
+        hapticManager.onPresetToggled(nextEnabled, _uiState.value.activePresetName)
         syncDspEngine()
     }
 
     fun setMasterEnabled(enabled: Boolean) {
+        val changed = _uiState.value.isMasterEnabled != enabled
         _uiState.update { it.copy(isMasterEnabled = enabled) }
+        if (changed) {
+            hapticManager.onPresetToggled(enabled, _uiState.value.activePresetName)
+        }
         syncDspEngine()
     }
 
     fun setBackgroundServiceEnabled(enabled: Boolean) {
         presetManager.setBackgroundServiceEnabled(enabled)
         _uiState.update { it.copy(isBackgroundServiceEnabled = enabled) }
+        hapticManager.onControlTick(if (enabled) "Background DSP Active" else "Background DSP Off")
         val app = getApplication<Application>()
         if (enabled) {
             EqForegroundService.startOrUpdate(app)
@@ -235,6 +269,13 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     fun updateBandGain(bandIndex: Int, gainDb: Float) {
         if (bandIndex !in 0..9) return
         val clamped = (kotlin.math.round(gainDb * 2f) / 2f).coerceIn(-15f, 15f)
+        val oldGain = _uiState.value.bandGainsDb.getOrElse(bandIndex) { 0f }
+        if (EqHapticFeedbackManager.didCrossZeroDb(oldGain, clamped)) {
+            hapticManager.onControlTick(
+                label = "${EqPresetEntity.FREQUENCY_LABELS.getOrElse(bandIndex) { "Band" }} 0.0dB",
+                isZeroDbSnap = true
+            )
+        }
         _uiState.update { state ->
             val updated = state.bandGainsDb.toMutableList()
             updated[bandIndex] = clamped
@@ -247,7 +288,21 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resetToFlat() {
-        applyPreset(EqPresetEntity.BUILT_IN_PRESETS.first())
+        val flatPreset = EqPresetEntity.BUILT_IN_PRESETS.first()
+        _uiState.update { state ->
+            state.copy(
+                isMasterEnabled = true,
+                activePresetName = flatPreset.name,
+                bandGainsDb = flatPreset.getBandGains(),
+                bassBoostStrength = flatPreset.bassBoostStrength,
+                reverbLevel = flatPreset.reverbLevel,
+                reverbRoom = flatPreset.reverbRoom,
+                spatialLevel = flatPreset.spatialLevel,
+                preampDb = flatPreset.preampDb
+            )
+        }
+        hapticManager.onPresetToggled(false, "Flat Reset")
+        syncDspEngine()
     }
 
     fun updateBassBoost(strength: Int) {
@@ -266,24 +321,87 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateReverbRoom(room: String) {
+        if (_uiState.value.reverbRoom != room) {
+            hapticManager.onControlTick("Reverb: $room")
+        }
         _uiState.update { it.copy(reverbRoom = room) }
         syncDspEngine()
     }
 
     fun updatePreampDb(db: Float) {
         val clamped = (kotlin.math.round(db * 2f) / 2f).coerceIn(-12f, 12f)
+        val oldDb = _uiState.value.preampDb
+        if (EqHapticFeedbackManager.didCrossZeroDb(oldDb, clamped)) {
+            hapticManager.onControlTick("Preamp 0.0dB", isZeroDbSnap = true)
+        }
         _uiState.update { it.copy(preampDb = clamped) }
         syncDspEngine()
     }
 
     fun toggleSoftLimiter() {
-        _uiState.update { it.copy(softLimiterEnabled = !it.softLimiterEnabled) }
+        val next = !_uiState.value.softLimiterEnabled
+        _uiState.update { it.copy(softLimiterEnabled = next) }
+        hapticManager.onPresetToggled(next, "Soft-Clip Limiter")
         syncDspEngine()
     }
 
-    fun applyPreset(preset: EqPresetEntity) {
+    /**
+     * Selects or toggles an equalizer preset with acoustic-tailored tactile haptic feedback:
+     * - If the tapped preset is not currently active (or master EQ is bypassed), it activates
+     *   the preset and fires an acoustic-matched selection haptic pulse.
+     * - If the tapped preset is already active and toggleIfAlreadyActive is true, it toggles
+     *   between that preset and Flat bypass (or restores the last active preset if Flat was tapped),
+     *   firing a tactile toggle ON/OFF haptic snap.
+     */
+    fun applyPreset(preset: EqPresetEntity, toggleIfAlreadyActive: Boolean = true) {
+        val currentState = _uiState.value
+        val isSamePreset = currentState.activePresetName.equals(preset.name, ignoreCase = true)
+
+        if (isSamePreset && currentState.isMasterEnabled && toggleIfAlreadyActive) {
+            val flatPreset = EqPresetEntity.BUILT_IN_PRESETS.first()
+            if (!preset.name.equals(flatPreset.name, ignoreCase = true)) {
+                lastSelectedNonFlatPreset = preset
+                _uiState.update { state ->
+                    state.copy(
+                        activePresetName = flatPreset.name,
+                        bandGainsDb = flatPreset.getBandGains(),
+                        bassBoostStrength = flatPreset.bassBoostStrength,
+                        reverbLevel = flatPreset.reverbLevel,
+                        reverbRoom = flatPreset.reverbRoom,
+                        spatialLevel = flatPreset.spatialLevel,
+                        preampDb = flatPreset.preampDb
+                    )
+                }
+                hapticManager.onPresetToggled(enabled = false, presetName = preset.name)
+                syncDspEngine()
+                return
+            } else if (!lastSelectedNonFlatPreset.name.equals(flatPreset.name, ignoreCase = true)) {
+                val restored = lastSelectedNonFlatPreset
+                _uiState.update { state ->
+                    state.copy(
+                        isMasterEnabled = true,
+                        activePresetName = restored.name,
+                        bandGainsDb = restored.getBandGains(),
+                        bassBoostStrength = restored.bassBoostStrength,
+                        reverbLevel = restored.reverbLevel,
+                        reverbRoom = restored.reverbRoom,
+                        spatialLevel = restored.spatialLevel,
+                        preampDb = restored.preampDb
+                    )
+                }
+                hapticManager.onPresetToggled(enabled = true, presetName = restored.name)
+                syncDspEngine()
+                return
+            }
+        }
+
+        if (!preset.name.equals("Flat", ignoreCase = true)) {
+            lastSelectedNonFlatPreset = preset
+        }
+
         _uiState.update { state ->
             state.copy(
+                isMasterEnabled = true,
                 activePresetName = preset.name,
                 bandGainsDb = preset.getBandGains(),
                 bassBoostStrength = preset.bassBoostStrength,
@@ -293,6 +411,7 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
                 preampDb = preset.preampDb
             )
         }
+        hapticManager.onPresetSelected(preset)
         syncDspEngine()
     }
 
@@ -559,6 +678,7 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update {
                 it.copy(
                     isGeneratingAiEq = false,
+                    isMasterEnabled = true,
                     activePresetName = finalPreset.name,
                     bandGainsDb = finalPreset.getBandGains(),
                     bassBoostStrength = finalPreset.bassBoostStrength,
@@ -570,6 +690,7 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
                     lastAiEngineBadge = result.sourceEngine
                 )
             }
+            hapticManager.onAiPresetApplied(finalPreset.name)
             syncDspEngine()
             onComplete(finalPreset)
         }
