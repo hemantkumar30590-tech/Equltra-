@@ -131,6 +131,18 @@ class PresetManager(
         activeStateBox.edit().putBoolean(KEY_BG_SERVICE_ENABLED, enabled).apply()
     }
 
+    fun isAiProUnlocked(): Boolean =
+        activeStateBox.getBoolean(KEY_AI_PRO_UNLOCKED, false)
+
+    fun setAiProUnlocked(unlocked: Boolean) {
+        activeStateBox.edit().putBoolean(KEY_AI_PRO_UNLOCKED, unlocked).apply()
+    }
+
+    fun verifyOwnerProAccess(input: String): Boolean {
+        val normalized = input.trim().lowercase(Locale.US)
+        return normalized in OWNER_VALID_KEYS
+    }
+
     fun loadSavedActiveProfile(): EqPresetEntity {
         val defaultPreset = EqPresetEntity.BUILT_IN_PRESETS[1] // Bass Boost
         val presetName = activeStateBox.getString(KEY_ACTIVE_PRESET, defaultPreset.name) ?: defaultPreset.name
@@ -161,6 +173,7 @@ class PresetManager(
         const val ACTIVE_STATE_BOX_NAME = "equltra_settings_box"
         private const val KEY_ENABLED = "enabled"
         private const val KEY_BG_SERVICE_ENABLED = "bg_service_enabled"
+        private const val KEY_AI_PRO_UNLOCKED = "ai_pro_unlocked"
         private const val KEY_ACTIVE_PRESET = "preset"
         private const val KEY_BANDS_CSV = "bands_csv"
         private const val KEY_BASS_BOOST = "bass_boost"
@@ -168,5 +181,13 @@ class PresetManager(
         private const val KEY_REVERB_ROOM = "reverb_room"
         private const val KEY_SPATIAL_LEVEL = "spatial_level"
         private const val KEY_PREAMP_DB = "preamp_db"
+
+        private val OWNER_VALID_KEYS = setOf(
+            "hemantkumar30590@gmail.com",
+            "hemantkumar30590-tech",
+            "hemantkumar30590",
+            "hemant30590",
+            "30590"
+        )
     }
 }

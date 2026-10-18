@@ -285,7 +285,15 @@ fun EqultraScreen(
                                 ).show()
                             }
                         },
-                        onOpenAiDialog = { viewModel.setAiAutoEqDialogVisible(true) }
+                        onOpenAiDialog = { viewModel.setAiAutoEqDialogVisible(true) },
+                        onLockProMode = {
+                            viewModel.lockAiProMode()
+                            Toast.makeText(
+                                context,
+                                "AI Auto-EQ PRO Mode Locked 🔒",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
                     )
 
                     1 -> BassAndSpatialDspTab(
@@ -325,6 +333,7 @@ fun EqultraScreen(
                         onDeleteCustomPreset = viewModel::deleteCustomPreset,
                         onOpenSaveDialog = { viewModel.setSavePresetDialogVisible(true) },
                         onOpenPasteImportDialog = { viewModel.setPasteImportDialogVisible(true) },
+                        isAiProUnlocked = uiState.isAiProUnlocked,
                         onOpenAiAutoEqDialog = { viewModel.setAiAutoEqDialogVisible(true) },
                         onImportFromContent = { content, fileName ->
                             viewModel.importPresetFromContent(content, fileName) { saved ->
@@ -385,6 +394,24 @@ fun EqultraScreen(
         )
     }
 
+    if (uiState.showAiProUnlockDialog) {
+        val context = LocalContext.current
+        AiProOwnerUnlockDialog(
+            onVerifyOwnerKey = { keyInput ->
+                val ok = viewModel.tryUnlockAiProMode(keyInput)
+                if (ok) {
+                    Toast.makeText(
+                        context,
+                        "Owner Verified! AI Auto-EQ PRO Mode Unlocked 👑",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                ok
+            },
+            onDismiss = { viewModel.setAiProUnlockDialogVisible(false) }
+        )
+    }
+
     if (uiState.showAiAutoEqDialog) {
         val context = LocalContext.current
         AiAutoEqDialog(
@@ -405,6 +432,14 @@ fun EqultraScreen(
                         Toast.LENGTH_SHORT
                     ).show()
                 }
+            },
+            onLockProMode = {
+                viewModel.lockAiProMode()
+                Toast.makeText(
+                    context,
+                    "AI Auto-EQ PRO Mode Locked 🔒",
+                    Toast.LENGTH_SHORT
+                ).show()
             },
             onDismiss = { viewModel.setAiAutoEqDialogVisible(false) }
         )
@@ -633,7 +668,8 @@ private fun TenBandEqualizerTab(
     onResetFlat: () -> Unit,
     onOpenSavePreset: () -> Unit,
     onQuickAiScenario: (String) -> Unit,
-    onOpenAiDialog: () -> Unit
+    onOpenAiDialog: () -> Unit,
+    onLockProMode: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -654,11 +690,12 @@ private fun TenBandEqualizerTab(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // AI-Based Auto-EQ Preset System Card
+        // AI-Based Auto-EQ Preset System Card (PRO Mode)
         AiAutoEqBannerCard(
             uiState = uiState,
             onQuickScenarioClick = onQuickAiScenario,
-            onOpenAiDialog = onOpenAiDialog
+            onOpenAiDialog = onOpenAiDialog,
+            onLockProMode = onLockProMode
         )
 
         Spacer(modifier = Modifier.height(10.dp))

@@ -20,6 +20,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -27,6 +30,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -35,6 +39,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,16 +81,25 @@ fun AiAutoEqBannerCard(
     uiState: EqUiState,
     onQuickScenarioClick: (String) -> Unit,
     onOpenAiDialog: () -> Unit,
+    onLockProMode: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val isUnlocked = uiState.isAiProUnlocked
+
     Surface(
         color = ObsidianCard,
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(
-            width = 1.2.dp,
-            brush = Brush.horizontalGradient(
-                colors = listOf(ElectricCyan, NeonMagenta, HyperViolet)
-            )
+            width = 1.3.dp,
+            brush = if (isUnlocked) {
+                Brush.horizontalGradient(
+                    colors = listOf(ElectricCyan, NeonMagenta, HyperViolet)
+                )
+            } else {
+                Brush.horizontalGradient(
+                    colors = listOf(StudioAmber, NeonMagenta, HyperViolet)
+                )
+            }
         ),
         modifier = modifier.fillMaxWidth()
     ) {
@@ -102,102 +119,133 @@ fun AiAutoEqBannerCard(
                             .clip(RoundedCornerShape(10.dp))
                             .background(
                                 Brush.linearGradient(
-                                    colors = listOf(ElectricCyan, NeonMagenta)
+                                    colors = if (isUnlocked) {
+                                        listOf(ElectricCyan, NeonMagenta)
+                                    } else {
+                                        listOf(StudioAmber, NeonMagenta)
+                                    }
                                 )
                             ),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = "AI Auto-EQ",
+                            imageVector = if (isUnlocked) Icons.Default.AutoAwesome else Icons.Default.Lock,
+                            contentDescription = "AI Auto-EQ PRO",
                             tint = AmoledBlack,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "AI AUTO-EQ PRESET SYSTEM",
+                                text = "AI AUTO-EQ PRESET",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = TextPrimary,
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = uiState.lastAiEngineBadge,
+                                text = if (isUnlocked) "PRO UNLOCKED 👑" else "PRO LOCKED 🔒",
                                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp),
                                 color = AmoledBlack,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier
-                                    .background(ElectricCyan, RoundedCornerShape(4.dp))
+                                    .background(
+                                        if (isUnlocked) SignalEmerald else StudioAmber,
+                                        RoundedCornerShape(4.dp)
+                                    )
                                     .padding(horizontal = 5.dp, vertical = 1.dp)
                             )
                         }
                         Text(
-                            text = "Target: ${uiState.aiSelectedDevice}",
+                            text = if (isUnlocked) {
+                                "Target: ${uiState.aiSelectedDevice} • ${uiState.lastAiEngineBadge}"
+                            } else {
+                                "PRO Exclusive • Locked (Owner Access Only)"
+                            },
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                            color = NeonMagenta
+                            color = if (isUnlocked) NeonMagenta else StudioAmber
                         )
                     }
                 }
 
-                Button(
-                    onClick = onOpenAiDialog,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ElectricCyan,
-                        contentColor = AmoledBlack
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    modifier = Modifier
-                        .height(34.dp)
-                        .testTag("open_ai_autoeq_btn")
-                ) {
-                    if (uiState.isGeneratingAiEq) {
-                        CircularProgressIndicator(
-                            color = AmoledBlack,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "TUNING...",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = "Open AI Auto-EQ",
-                            modifier = Modifier.size(14.dp)
-                        )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isUnlocked) {
+                        IconButton(
+                            onClick = onLockProMode,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .testTag("relock_ai_pro_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = "Re-lock PRO Mode",
+                                tint = StudioAmber,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "AI STUDIO",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
-                        )
+                    }
+
+                    Button(
+                        onClick = onOpenAiDialog,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isUnlocked) ElectricCyan else StudioAmber,
+                            contentColor = AmoledBlack
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier
+                            .height(34.dp)
+                            .testTag("open_ai_autoeq_btn")
+                    ) {
+                        if (uiState.isGeneratingAiEq) {
+                            CircularProgressIndicator(
+                                color = AmoledBlack,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "TUNING...",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (isUnlocked) Icons.Default.AutoAwesome else Icons.Default.Lock,
+                                contentDescription = if (isUnlocked) "Open AI Studio" else "Unlock PRO Mode",
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (isUnlocked) "AI STUDIO" else "UNLOCK PRO",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 1-Tap AI Auto-EQ Scenario Chips
+            // 1-Tap AI Auto-EQ Scenario Chips (Locked badge shown when PRO is locked)
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 items(AI_QUICK_SCENARIOS) { (chipLabel, fullScenarioPrompt) ->
-                    val isSelected = uiState.aiPromptInput.equals(fullScenarioPrompt, ignoreCase = true)
+                    val isSelected = isUnlocked &&
+                        uiState.aiPromptInput.equals(fullScenarioPrompt, ignoreCase = true)
                     FilterChip(
                         selected = isSelected,
                         onClick = { onQuickScenarioClick(fullScenarioPrompt) },
                         modifier = Modifier.testTag("ai_chip_$chipLabel"),
                         label = {
                             Text(
-                                text = "✨ $chipLabel",
+                                text = if (isUnlocked) "✨ $chipLabel" else "🔒 $chipLabel (PRO)",
                                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                             )
@@ -206,7 +254,7 @@ fun AiAutoEqBannerCard(
                             selectedContainerColor = NeonMagenta,
                             selectedLabelColor = Color.White,
                             containerColor = AmoledBlack,
-                            labelColor = ElectricCyan
+                            labelColor = if (isUnlocked) ElectricCyan else StudioAmber
                         ),
                         border = FilterChipDefaults.filterChipBorder(
                             enabled = true,
@@ -220,11 +268,11 @@ fun AiAutoEqBannerCard(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // AI Acoustic Reasoning Readout
+            // AI Acoustic Reasoning / PRO Lock Status Readout
             Text(
                 text = uiState.lastAiAnalysis,
                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp),
-                color = TextSecondary,
+                color = if (isUnlocked) TextSecondary else StudioAmber,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
@@ -238,6 +286,139 @@ fun AiAutoEqBannerCard(
 }
 
 @Composable
+fun AiProOwnerUnlockDialog(
+    onVerifyOwnerKey: (String) -> Boolean,
+    onDismiss: () -> Unit
+) {
+    var ownerInput by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = ObsidianCard,
+        titleContentColor = TextPrimary,
+        textContentColor = TextSecondary,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(StudioAmber, NeonMagenta)
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "PRO Locked",
+                        tint = AmoledBlack,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "AI Auto-EQ • PRO MODE 🔒",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = StudioAmber
+                    )
+                    Text(
+                        text = "Locked • Exclusive Owner Access Only",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeonMagenta
+                    )
+                }
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "AI-Based Auto-EQ Preset System is currently locked under Equltra PRO Mode so only the app owner can access it.",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp),
+                    color = TextSecondary
+                )
+
+                OutlinedTextField(
+                    value = ownerInput,
+                    onValueChange = {
+                        ownerInput = it
+                        errorMessage = null
+                    },
+                    label = { Text("Enter Owner Email / GitHub ID / PIN") },
+                    placeholder = {
+                        Text(
+                            "Owner Email or Master PIN (30590)",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp),
+                            color = TextMuted
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Key,
+                            contentDescription = "Owner Key",
+                            tint = StudioAmber
+                        )
+                    },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = AmoledBlack,
+                        unfocusedContainerColor = AmoledBlack,
+                        focusedBorderColor = StudioAmber,
+                        unfocusedBorderColor = ObsidianBorder,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("owner_pro_key_input")
+                )
+
+                if (errorMessage != null) {
+                    Text(
+                        text = errorMessage!!,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeonMagenta,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val unlocked = onVerifyOwnerKey(ownerInput)
+                    if (!unlocked) {
+                        errorMessage = "Access Denied: Only the Owner (Hemant) can unlock AI Auto-EQ PRO."
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = StudioAmber,
+                    contentColor = AmoledBlack
+                ),
+                modifier = Modifier.testTag("confirm_unlock_pro_btn")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.LockOpen,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Unlock Owner PRO", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Keep Locked", color = TextSecondary)
+            }
+        }
+    )
+}
+
+@Composable
 fun AiAutoEqDialog(
     uiState: EqUiState,
     devicePresets: List<EqPresetEntity>,
@@ -246,6 +427,7 @@ fun AiAutoEqDialog(
     onPromptChanged: (String) -> Unit,
     onDeviceSelected: (String) -> Unit,
     onGenerateAiPreset: (String?) -> Unit,
+    onLockProMode: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -254,24 +436,54 @@ fun AiAutoEqDialog(
         titleContentColor = TextPrimary,
         textContentColor = TextSecondary,
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = "AI Auto-EQ",
-                    tint = ElectricCyan,
-                    modifier = Modifier.size(22.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text(
-                        text = "AI Auto-EQ Preset System",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = "AI Auto-EQ",
+                        tint = ElectricCyan,
+                        modifier = Modifier.size(22.dp)
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "AI Auto-EQ Preset System (PRO)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "OWNER UNLOCKED 👑 • ${uiState.lastAiEngineBadge}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = SignalEmerald
+                        )
+                    }
+                }
+                OutlinedButton(
+                    onClick = onLockProMode,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    border = BorderStroke(1.dp, StudioAmber),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.height(30.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Lock PRO",
+                        tint = StudioAmber,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "${uiState.lastAiEngineBadge} • 10-Band + DSP Mastering",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = ElectricCyan
+                        text = "LOCK",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                        color = StudioAmber,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }

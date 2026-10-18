@@ -766,6 +766,26 @@ class PresetManager {
     await _stateBox.put('backgroundModeEnabled', enabled);
   }
 
+  bool isAiProUnlocked() {
+    return _stateBox.get('aiProUnlocked', defaultValue: false) as bool;
+  }
+
+  Future<void> setAiProUnlocked(bool unlocked) async {
+    await _stateBox.put('aiProUnlocked', unlocked);
+  }
+
+  bool verifyOwnerProAccess(String input) {
+    final normalized = input.trim().toLowerCase();
+    const validOwnerKeys = {
+      'hemantkumar30590@gmail.com',
+      'hemantkumar30590-tech',
+      'hemantkumar30590',
+      'hemant30590',
+      '30590',
+    };
+    return validOwnerKeys.contains(normalized);
+  }
+
   /// Loads the last active SoundProfile from Hive, or falls back to 'Bass Boost'.
   SoundProfile loadActiveProfile() {
     final presetName =

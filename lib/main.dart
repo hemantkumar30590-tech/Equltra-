@@ -48,6 +48,7 @@ class EqState {
   final String lastAiAnalysis;
   final String lastAiEngineBadge;
   final bool isGeneratingAiEq;
+  final bool isAiProUnlocked;
 
   const EqState({
     required this.enabled,
@@ -66,9 +67,10 @@ class EqState {
     this.aiPromptInput = '',
     this.aiSelectedDevice = 'Apple AirPods Pro 3',
     this.lastAiAnalysis =
-        'Tap any AI Scenario Chip or enter your song/genre/earbuds to auto-tune all 10 bands, Bass Boost, Spatial 3D & Preamp.',
+        'PRO MODE LOCKED 🔒 — Exclusive AI Auto-EQ 10-Band + DSP Mastering Engine. Tap UNLOCK PRO (Owner Only) to access.',
     this.lastAiEngineBadge = 'Gemini 3.5 Flash AI',
     this.isGeneratingAiEq = false,
+    this.isAiProUnlocked = false,
   });
 
   EqState copyWith({
@@ -90,6 +92,7 @@ class EqState {
     String? lastAiAnalysis,
     String? lastAiEngineBadge,
     bool? isGeneratingAiEq,
+    bool? isAiProUnlocked,
   }) {
     return EqState(
       enabled: enabled ?? this.enabled,
@@ -111,6 +114,7 @@ class EqState {
       lastAiAnalysis: lastAiAnalysis ?? this.lastAiAnalysis,
       lastAiEngineBadge: lastAiEngineBadge ?? this.lastAiEngineBadge,
       isGeneratingAiEq: isGeneratingAiEq ?? this.isGeneratingAiEq,
+      isAiProUnlocked: isAiProUnlocked ?? this.isAiProUnlocked,
     );
   }
 }
@@ -133,6 +137,7 @@ class EqNotifier extends StateNotifier<EqState> {
             preampDb: _presetManager.loadActiveProfile().preampDb,
             allPresets: _presetManager.getAllPresets(),
             importedPresets: _presetManager.loadImportedPresets(),
+            isAiProUnlocked: _presetManager.isAiProUnlocked(),
           ),
         ) {
     _bgService = BackgroundEqService(
@@ -255,7 +260,30 @@ class EqNotifier extends StateNotifier<EqState> {
     state = state.copyWith(aiPromptInput: prompt);
   }
 
-  Future<SoundProfile> generateAndApplyAiAutoEq({String? overridePrompt}) async {
+  Future<bool> tryUnlockAiProMode(String ownerKey) async {
+    final valid = _presetManager.verifyOwnerProAccess(ownerKey);
+    if (valid) {
+      await _presetManager.setAiProUnlocked(true);
+      state = state.copyWith(
+        isAiProUnlocked: true,
+        lastAiAnalysis:
+            'OWNER PRO UNLOCKED 👑 — Tap any AI Scenario Chip to auto-tune all 10 bands & DSP.',
+      );
+    }
+    return valid;
+  }
+
+  Future<void> lockAiProMode() async {
+    await _presetManager.setAiProUnlocked(false);
+    state = state.copyWith(
+      isAiProUnlocked: false,
+      lastAiAnalysis:
+          'PRO MODE LOCKED 🔒 — Exclusive AI Auto-EQ 10-Band + DSP Mastering Engine. Tap UNLOCK PRO (Owner Only) to access.',
+    );
+  }
+
+  Future<SoundProfile?> generateAndApplyAiAutoEq({String? overridePrompt}) async {
+    if (!state.isAiProUnlocked) return null;
     final promptToUse = (overridePrompt ?? state.aiPromptInput).trim().isEmpty
         ? 'Live Spectrum Smart Calibration'
         : (overridePrompt ?? state.aiPromptInput).trim();
@@ -388,6 +416,39 @@ class EqultraApp extends StatelessWidget {
 
 class EqultraHomeScreen extends ConsumerWidget {
   const EqultraHomeScreen({super.key});
+
+  Future<void> _showOwnerProUnlockDialog(
+    BuildContext context,
+    EqNotifier notifier,
+  ) async {
+    final keyCtrl = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF101522),
+        title: const Text('AI Auto-EQ • PRO MODE 🔒'),
+        content: TextField(
+          controller: keyCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Owner Email or Master PIN (30590)',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Keep Locked'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final ok = await notifier.tryUnlockAiProMode(keyCtrl.text);
+              if (ctx.mounted && ok) Navigator.of(ctx).pop();
+            },
+            child: const Text('Unlock Owner PRO'),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _showSavePresetDialog(
     BuildContext context,
@@ -659,7 +720,11 @@ class EqultraHomeScreen extends ConsumerWidget {
             decoration: BoxDecoration(
               color: const Color(0xFF0A0E17),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFF00F0FF)),
+              border: Border.all(
+                color: eq.isAiProUnlocked
+                    ? const Color(0xFF00F0FF)
+                    : const Color(0xFFFFB300),
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -669,20 +734,36 @@ class EqultraHomeScreen extends ConsumerWidget {
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.auto_awesome, color: Color(0xFF00F0FF), size: 18),
+                        Icon(
+                          eq.isAiProUnlocked ? Icons.auto_awesome : Icons.lock,
+                          color: eq.isAiProUnlocked
+                              ? const Color(0xFF00F0FF)
+                              : const Color(0xFFFFB300),
+                          size: 18,
+                        ),
                         const SizedBox(width: 6),
-                        const Text(
-                          'AI AUTO-EQ PRESET SYSTEM',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                        Text(
+                          eq.isAiProUnlocked
+                              ? 'AI AUTO-EQ PRESET (PRO UNLOCKED 👑)'
+                              : 'AI AUTO-EQ PRESET (PRO LOCKED 🔒)',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                         ),
                       ],
                     ),
-                    Text(
-                      eq.lastAiEngineBadge,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: Color(0xFFFF2A85),
-                        fontWeight: FontWeight.bold,
+                    TextButton(
+                      onPressed: () {
+                        if (eq.isAiProUnlocked) {
+                          notifier.lockAiProMode();
+                        } else {
+                          _showOwnerProUnlockDialog(context, notifier);
+                        }
+                      },
+                      child: Text(
+                        eq.isAiProUnlocked ? 'LOCK PRO' : 'UNLOCK PRO',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ],
@@ -695,11 +776,20 @@ class EqultraHomeScreen extends ConsumerWidget {
                       return Padding(
                         padding: const EdgeInsets.only(right: 6),
                         child: ActionChip(
-                          label: Text('✨ ${entry.key}', style: const TextStyle(fontSize: 11)),
+                          label: Text(
+                            eq.isAiProUnlocked
+                                ? '✨ ${entry.key}'
+                                : '🔒 ${entry.key} (PRO)',
+                            style: const TextStyle(fontSize: 11),
+                          ),
                           onPressed: () {
-                            notifier.generateAndApplyAiAutoEq(
-                              overridePrompt: entry.value,
-                            );
+                            if (eq.isAiProUnlocked) {
+                              notifier.generateAndApplyAiAutoEq(
+                                overridePrompt: entry.value,
+                              );
+                            } else {
+                              _showOwnerProUnlockDialog(context, notifier);
+                            }
                           },
                         ),
                       );

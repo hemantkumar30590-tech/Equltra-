@@ -41,10 +41,12 @@ data class EqUiState(
     val showSavePresetDialog: Boolean = false,
     val showPasteImportDialog: Boolean = false,
     val showAiAutoEqDialog: Boolean = false,
+    val showAiProUnlockDialog: Boolean = false,
+    val isAiProUnlocked: Boolean = false,
     val isGeneratingAiEq: Boolean = false,
     val aiPromptInput: String = "",
     val aiSelectedDevice: String = "Apple AirPods Pro 3",
-    val lastAiAnalysis: String = "Tap any AI Scenario Chip or enter your song/genre/earbuds to auto-tune all 10 bands, Bass Boost, Spatial 3D & Preamp.",
+    val lastAiAnalysis: String = "PRO MODE LOCKED — Exclusive AI Auto-EQ 10-Band + DSP Mastering Engine. Unlock with Owner Key to use.",
     val lastAiEngineBadge: String = "Gemini 3.5 Flash AI"
 )
 
@@ -83,17 +85,24 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
 
         val restored = presetManager.loadSavedActiveProfile()
         val bgEnabled = presetManager.isBackgroundServiceEnabled()
+        val proUnlocked = presetManager.isAiProUnlocked()
         _uiState = MutableStateFlow(
             EqUiState(
                 isMasterEnabled = presetManager.isDspEnabled(),
                 isBackgroundServiceEnabled = bgEnabled,
+                isAiProUnlocked = proUnlocked,
                 activePresetName = restored.name,
                 bandGainsDb = restored.getBandGains(),
                 bassBoostStrength = restored.bassBoostStrength,
                 reverbLevel = restored.reverbLevel,
                 reverbRoom = restored.reverbRoom,
                 spatialLevel = restored.spatialLevel,
-                preampDb = restored.preampDb
+                preampDb = restored.preampDb,
+                lastAiAnalysis = if (proUnlocked) {
+                    "OWNER PRO UNLOCKED — Tap any AI Scenario Chip or open AI Studio to auto-tune all 10 bands, Bass Boost, Spatial 3D & Preamp."
+                } else {
+                    "PRO MODE LOCKED 🔒 — Exclusive AI Auto-EQ 10-Band + DSP Mastering Engine. Tap UNLOCK PRO (Owner Only) to access."
+                }
             )
         )
         uiState = _uiState.asStateFlow()
@@ -258,7 +267,41 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setAiAutoEqDialogVisible(visible: Boolean) {
+        if (visible && !_uiState.value.isAiProUnlocked) {
+            _uiState.update { it.copy(showAiProUnlockDialog = true) }
+            return
+        }
         _uiState.update { it.copy(showAiAutoEqDialog = visible) }
+    }
+
+    fun setAiProUnlockDialogVisible(visible: Boolean) {
+        _uiState.update { it.copy(showAiProUnlockDialog = visible) }
+    }
+
+    fun tryUnlockAiProMode(ownerKeyInput: String): Boolean {
+        val valid = presetManager.verifyOwnerProAccess(ownerKeyInput)
+        if (valid) {
+            presetManager.setAiProUnlocked(true)
+            _uiState.update {
+                it.copy(
+                    isAiProUnlocked = true,
+                    showAiProUnlockDialog = false,
+                    lastAiAnalysis = "OWNER PRO UNLOCKED 👑 — Tap any AI Scenario Chip or open AI Studio to auto-tune all 10 bands & DSP."
+                )
+            }
+        }
+        return valid
+    }
+
+    fun lockAiProMode() {
+        presetManager.setAiProUnlocked(false)
+        _uiState.update {
+            it.copy(
+                isAiProUnlocked = false,
+                showAiAutoEqDialog = false,
+                lastAiAnalysis = "PRO MODE LOCKED 🔒 — Exclusive AI Auto-EQ 10-Band + DSP Mastering Engine. Tap UNLOCK PRO (Owner Only) to access."
+            )
+        }
     }
 
     fun updateAiPromptInput(prompt: String) {
@@ -275,6 +318,10 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
         onComplete: (EqPresetEntity) -> Unit = {}
     ) {
         val state = _uiState.value
+        if (!state.isAiProUnlocked) {
+            _uiState.update { it.copy(showAiProUnlockDialog = true) }
+            return
+        }
         val promptToUse = (overridePrompt ?: state.aiPromptInput).trim()
             .ifEmpty { "Live Spectrum Smart Calibration" }
 

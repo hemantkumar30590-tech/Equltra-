@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.Tune
@@ -514,6 +515,7 @@ fun PresetsAndImportExportTab(
     onDeleteCustomPreset: (EqPresetEntity) -> Unit,
     onOpenSaveDialog: () -> Unit,
     onOpenPasteImportDialog: () -> Unit,
+    isAiProUnlocked: Boolean = false,
     onOpenAiAutoEqDialog: () -> Unit = {},
     onImportFromContent: (String, String) -> Unit,
     onBuildExportJson: () -> String
@@ -569,7 +571,7 @@ fun PresetsAndImportExportTab(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Supports AI Auto-EQ, .json, AutoEQ .txt & .equltra + Share",
+                    text = "Supports AI Auto-EQ (PRO), .json, AutoEQ .txt & .equltra",
                     style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp),
                     color = TextSecondary
                 )
@@ -577,8 +579,8 @@ fun PresetsAndImportExportTab(
             Button(
                 onClick = onOpenAiAutoEqDialog,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = NeonMagenta,
-                    contentColor = Color.White
+                    containerColor = if (isAiProUnlocked) NeonMagenta else StudioAmber,
+                    contentColor = if (isAiProUnlocked) Color.White else AmoledBlack
                 ),
                 shape = RoundedCornerShape(10.dp),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
@@ -587,13 +589,13 @@ fun PresetsAndImportExportTab(
                     .testTag("presets_tab_ai_autoeq_btn")
             ) {
                 Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = "AI Auto-EQ",
+                    imageVector = if (isAiProUnlocked) Icons.Default.AutoAwesome else Icons.Default.Lock,
+                    contentDescription = "AI Auto-EQ PRO",
                     modifier = Modifier.size(14.dp)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "AI AUTO-EQ",
+                    text = if (isAiProUnlocked) "AI AUTO-EQ PRO" else "AI PRO LOCKED",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold
                 )
