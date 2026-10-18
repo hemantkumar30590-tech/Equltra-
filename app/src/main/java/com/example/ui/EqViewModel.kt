@@ -1,23 +1,29 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.EqDatabase
 import com.example.data.EqPresetEntity
-import com.example.data.EqRepository
+import com.example.data.PresetManager
 import com.example.dsp.AudioDspEngine
+import com.example.service.EqForegroundService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class EqUiState(
     val isMasterEnabled: Boolean = true,
+    val isBackgroundServiceEnabled: Boolean = true,
     val selectedTab: Int = 0, // 0: EQ, 1: Bass & Spatial, 2: Presets, 3: Get APK
     val activePresetName: String = "Bass Boost",
     val bandGainsDb: List<Float> = EqPresetEntity.BUILT_IN_PRESETS[1].getBandGains(),
@@ -33,11 +39,11 @@ data class EqUiState(
 
 class EqViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository: EqRepository
+    private val presetManager: PresetManager
     private val dspEngine: AudioDspEngine
 
-    private val _uiState = MutableStateFlow(EqUiState())
-    val uiState: StateFlow<EqUiState> = _uiState.asStateFlow()
+    private val _uiState: MutableStateFlow<EqUiState>
+    val uiState: StateFlow<EqUiState>
 
     val allPresets: StateFlow<List<EqPresetEntity>>
     val isPlayingTestLoop: StateFlow<Boolean>
@@ -45,15 +51,37 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     val peakDb: StateFlow<Float>
     val hardwareStatus: StateFlow<String>
 
+    private val serviceReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == EqForegroundService.ACTION_SERVICE_STATE_CHANGED) {
+                reloadFromPresetManager()
+            }
+        }
+    }
+
     init {
         val db = EqDatabase.getInstance(application)
-        repository = EqRepository(db.eqPresetDao())
+        presetManager = PresetManager(application, db.eqPresetDao())
         dspEngine = AudioDspEngine(viewModelScope)
 
-        allPresets = repository.customPresets
-            .combine(MutableStateFlow(EqPresetEntity.BUILT_IN_PRESETS)) { custom, builtIn ->
-                builtIn + custom
-            }
+        val restored = presetManager.loadSavedActiveProfile()
+        val bgEnabled = presetManager.isBackgroundServiceEnabled()
+        _uiState = MutableStateFlow(
+            EqUiState(
+                isMasterEnabled = presetManager.isDspEnabled(),
+                isBackgroundServiceEnabled = bgEnabled,
+                activePresetName = restored.name,
+                bandGainsDb = restored.getBandGains(),
+                bassBoostStrength = restored.bassBoostStrength,
+                reverbLevel = restored.reverbLevel,
+                reverbRoom = restored.reverbRoom,
+                spatialLevel = restored.spatialLevel,
+                preampDb = restored.preampDb
+            )
+        )
+        uiState = _uiState.asStateFlow()
+
+        allPresets = presetManager.allSoundProfiles
             .stateIn(
                 scope = viewModelScope,
                 started = SharingStarted.WhileSubscribed(5000),
@@ -65,7 +93,45 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
         peakDb = dspEngine.peakDb
         hardwareStatus = dspEngine.hardwareStatus
 
+        runCatching {
+            ContextCompat.registerReceiver(
+                application,
+                serviceReceiver,
+                IntentFilter(EqForegroundService.ACTION_SERVICE_STATE_CHANGED),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+        }
+
         syncDspEngine()
+    }
+
+    private fun reloadFromPresetManager() {
+        val restored = presetManager.loadSavedActiveProfile()
+        val enabled = presetManager.isDspEnabled()
+        val bgEnabled = presetManager.isBackgroundServiceEnabled()
+        _uiState.update {
+            it.copy(
+                isMasterEnabled = enabled,
+                isBackgroundServiceEnabled = bgEnabled,
+                activePresetName = restored.name,
+                bandGainsDb = restored.getBandGains(),
+                bassBoostStrength = restored.bassBoostStrength,
+                reverbLevel = restored.reverbLevel,
+                reverbRoom = restored.reverbRoom,
+                spatialLevel = restored.spatialLevel,
+                preampDb = restored.preampDb
+            )
+        }
+        dspEngine.updateDspState(
+            enabled = enabled,
+            bandsDb = restored.getBandGains(),
+            bass = restored.bassBoostStrength,
+            reverb = restored.reverbLevel,
+            reverbRoom = restored.reverbRoom,
+            spatial = restored.spatialLevel,
+            preamp = restored.preampDb,
+            limiter = _uiState.value.softLimiterEnabled
+        )
     }
 
     fun selectTab(tabIndex: Int) {
@@ -75,6 +141,17 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleMasterEnabled() {
         _uiState.update { it.copy(isMasterEnabled = !it.isMasterEnabled) }
         syncDspEngine()
+    }
+
+    fun setBackgroundServiceEnabled(enabled: Boolean) {
+        presetManager.setBackgroundServiceEnabled(enabled)
+        _uiState.update { it.copy(isBackgroundServiceEnabled = enabled) }
+        val app = getApplication<Application>()
+        if (enabled) {
+            EqForegroundService.startOrUpdate(app)
+        } else {
+            EqForegroundService.stop(app)
+        }
     }
 
     fun updateBandGain(bandIndex: Int, gainDb: Float) {
@@ -146,28 +223,26 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveCurrentAsCustomPreset(name: String, description: String) {
-        val trimmedName = name.trim().ifEmpty { "My Custom EQ" }
-        val trimmedDesc = description.trim().ifEmpty { "User 10-band studio profile" }
         val state = _uiState.value
-        val preset = EqPresetEntity(
-            name = trimmedName,
-            category = "Custom",
-            description = trimmedDesc,
-            bandsCsv = state.bandGainsDb.joinToString(",") { "%.1f".format(java.util.Locale.US, it) },
-            bassBoostStrength = state.bassBoostStrength,
-            reverbLevel = state.reverbLevel,
-            reverbRoom = state.reverbRoom,
-            spatialLevel = state.spatialLevel,
-            preampDb = state.preampDb,
-            isBuiltIn = false
-        )
         viewModelScope.launch {
-            repository.saveCustomPreset(preset)
+            val saved = presetManager.saveCustomSoundProfile(
+                name = name,
+                description = description,
+                bandGainsDb = state.bandGainsDb,
+                bassBoostStrength = state.bassBoostStrength,
+                reverbLevel = state.reverbLevel,
+                reverbRoom = state.reverbRoom,
+                spatialLevel = state.spatialLevel,
+                preampDb = state.preampDb
+            )
             _uiState.update {
                 it.copy(
-                    activePresetName = trimmedName,
+                    activePresetName = saved.name,
                     showSavePresetDialog = false
                 )
+            }
+            if (_uiState.value.isBackgroundServiceEnabled) {
+                EqForegroundService.startOrUpdate(getApplication())
             }
         }
     }
@@ -175,7 +250,7 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteCustomPreset(preset: EqPresetEntity) {
         if (preset.isBuiltIn) return
         viewModelScope.launch {
-            repository.deleteCustomPreset(preset.id)
+            presetManager.deleteCustomSoundProfile(preset)
         }
     }
 
@@ -185,6 +260,16 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun syncDspEngine() {
         val s = _uiState.value
+        presetManager.persistActiveProfileState(
+            enabled = s.isMasterEnabled,
+            activePresetName = s.activePresetName,
+            bandGainsDb = s.bandGainsDb,
+            bassBoostStrength = s.bassBoostStrength,
+            reverbLevel = s.reverbLevel,
+            reverbRoom = s.reverbRoom,
+            spatialLevel = s.spatialLevel,
+            preampDb = s.preampDb
+        )
         dspEngine.updateDspState(
             enabled = s.isMasterEnabled,
             bandsDb = s.bandGainsDb,
@@ -195,9 +280,15 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
             preamp = s.preampDb,
             limiter = s.softLimiterEnabled
         )
+        if (s.isBackgroundServiceEnabled) {
+            EqForegroundService.startOrUpdate(getApplication())
+        }
     }
 
     override fun onCleared() {
+        runCatching {
+            getApplication<Application>().unregisterReceiver(serviceReceiver)
+        }
         super.onCleared()
         dspEngine.release()
     }

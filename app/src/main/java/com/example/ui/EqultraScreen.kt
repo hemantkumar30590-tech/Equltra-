@@ -182,12 +182,35 @@ fun EqultraScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // Top Studio Rack Header
+                val context = LocalContext.current
+                val notifPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                    contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+                ) { _ ->
+                    viewModel.setBackgroundServiceEnabled(true)
+                }
+
                 StudioTopHeader(
                     isEnabled = uiState.isMasterEnabled,
+                    isBackgroundServiceEnabled = uiState.isBackgroundServiceEnabled,
                     activePresetName = uiState.activePresetName,
                     isPlayingTest = isPlayingTest,
                     hardwareStatus = hardwareStatus,
                     onToggleMaster = viewModel::toggleMasterEnabled,
+                    onToggleBackgroundService = { enableBg ->
+                        if (enableBg && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                            val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                                context,
+                                android.Manifest.permission.POST_NOTIFICATIONS
+                            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                            if (!granted) {
+                                notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                viewModel.setBackgroundServiceEnabled(true)
+                            }
+                        } else {
+                            viewModel.setBackgroundServiceEnabled(enableBg)
+                        }
+                    },
                     onToggleTestLoop = viewModel::toggleTestAudioLoop
                 )
 
@@ -246,10 +269,12 @@ fun EqultraScreen(
 @Composable
 private fun StudioTopHeader(
     isEnabled: Boolean,
+    isBackgroundServiceEnabled: Boolean,
     activePresetName: String,
     isPlayingTest: Boolean,
     hardwareStatus: String,
     onToggleMaster: () -> Unit,
+    onToggleBackgroundService: (Boolean) -> Unit,
     onToggleTestLoop: () -> Unit
 ) {
     Surface(
@@ -373,6 +398,46 @@ private fun StudioTopHeader(
                         fontWeight = FontWeight.Bold
                     )
                 }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Background Mode & Notification Toggle Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(AmoledBlack)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (isBackgroundServiceEnabled) {
+                            "BACKGROUND DSP & NOTIFICATION: ACTIVE"
+                        } else {
+                            "BACKGROUND DSP & NOTIFICATION: OFF"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isBackgroundServiceEnabled) SignalEmerald else TextSecondary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Keeps equalizer running across Spotify, YouTube & other apps",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp),
+                        color = TextSecondary
+                    )
+                }
+                Switch(
+                    checked = isBackgroundServiceEnabled,
+                    onCheckedChange = onToggleBackgroundService,
+                    modifier = Modifier.testTag("background_service_switch"),
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = AmoledBlack,
+                        checkedTrackColor = SignalEmerald
+                    )
+                )
             }
         }
     }

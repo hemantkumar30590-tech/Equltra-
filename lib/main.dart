@@ -1,14 +1,17 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:equalizer/equalizer.dart';
 import 'package:bass_boost/bass_boost.dart';
+import 'preset_manager.dart';
+import 'background_eq_service.dart';
+
+late final PresetManager globalPresetManager;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
-  await Hive.openBox('equltra_settings');
+  globalPresetManager = await PresetManager.init();
   await Equalizer.init(0);
   await BassBoost.init(0);
   runApp(const ProviderScope(child: VoidEqUltraApp()));
@@ -19,139 +22,199 @@ const List<String> kFreqLabels = [
   '1kHz', '2kHz', '4kHz', '8kHz', '16kHz',
 ];
 
-const Map<String, List<double>> kStudioPresets = {
-  'Flat': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-  'Bass Boost': [8.5, 7.5, 5.0, 1.5, -0.5, 0.0, 1.0, 2.0, 2.5, 1.5],
-  'Warm': [3.0, 4.5, 4.0, 2.5, 1.0, 0.0, -1.0, -2.0, -2.5, -3.5],
-  'Theater': [6.5, 5.5, 3.0, -0.5, -1.5, 2.0, 4.0, 5.0, 4.5, 3.5],
-  'Dialogue Boost': [-4.5, -3.0, -1.0, 2.5, 5.5, 7.5, 6.5, 3.5, 0.5, -2.0],
-  'Action Mode': [7.5, 6.5, 4.0, 0.5, -2.0, 1.5, 4.5, 6.5, 7.0, 5.5],
-  'Soft': [-2.0, -1.0, 0.5, 1.5, 2.0, 1.0, -0.5, -2.5, -3.5, -4.5],
-  'Late Night': [-7.0, -5.0, -2.0, 2.0, 4.0, 4.5, 3.0, -0.5, -2.5, -4.0],
-  'Vocal Clarity': [-3.5, -2.5, -1.0, 3.0, 6.0, 7.0, 5.5, 3.5, 2.0, 1.0],
-};
-
 class EqState {
   final bool enabled;
+  final bool backgroundServiceEnabled;
   final String activePreset;
   final List<double> bands;
   final double bassBoost;
   final double reverb;
+  final String reverbRoom;
   final double spatial;
   final double preampDb;
+  final List<SoundProfile> allPresets;
 
   const EqState({
     required this.enabled,
+    required this.backgroundServiceEnabled,
     required this.activePreset,
     required this.bands,
     required this.bassBoost,
     required this.reverb,
+    required this.reverbRoom,
     required this.spatial,
     required this.preampDb,
+    required this.allPresets,
   });
 
   EqState copyWith({
     bool? enabled,
+    bool? backgroundServiceEnabled,
     String? activePreset,
     List<double>? bands,
     double? bassBoost,
     double? reverb,
+    String? reverbRoom,
     double? spatial,
     double? preampDb,
+    List<SoundProfile>? allPresets,
   }) {
     return EqState(
       enabled: enabled ?? this.enabled,
+      backgroundServiceEnabled:
+          backgroundServiceEnabled ?? this.backgroundServiceEnabled,
       activePreset: activePreset ?? this.activePreset,
       bands: bands ?? this.bands,
       bassBoost: bassBoost ?? this.bassBoost,
       reverb: reverb ?? this.reverb,
+      reverbRoom: reverbRoom ?? this.reverbRoom,
       spatial: spatial ?? this.spatial,
       preampDb: preampDb ?? this.preampDb,
+      allPresets: allPresets ?? this.allPresets,
     );
   }
 }
 
 class EqNotifier extends StateNotifier<EqState> {
-  final Box _box = Hive.box('equltra_settings');
+  final PresetManager _presetManager;
+  late final BackgroundEqService _bgService;
 
-  EqNotifier()
+  EqNotifier(this._presetManager)
       : super(
           EqState(
-            enabled: true,
-            activePreset: 'Bass Boost',
-            bands: List<double>.from(kStudioPresets['Bass Boost']!),
-            bassBoost: 78,
-            reverb: 20,
-            spatial: 45,
-            preampDb: 0.0,
+            enabled: _presetManager.isDspEnabled(),
+            backgroundServiceEnabled: _presetManager.isBackgroundModeEnabled(),
+            activePreset: _presetManager.loadActiveProfile().name,
+            bands: _presetManager.loadActiveProfile().bands,
+            bassBoost: _presetManager.loadActiveProfile().bassBoost,
+            reverb: _presetManager.loadActiveProfile().reverb,
+            reverbRoom: _presetManager.loadActiveProfile().reverbRoom,
+            spatial: _presetManager.loadActiveProfile().spatial,
+            preampDb: _presetManager.loadActiveProfile().preampDb,
+            allPresets: _presetManager.getAllPresets(),
           ),
         ) {
-    _loadFromHive();
-  }
-
-  void _loadFromHive() {
-    final preset = _box.get('preset', defaultValue: 'Bass Boost') as String;
-    final rawBands = _box.get('bands') as List<dynamic>?;
-    final bands = rawBands != null && rawBands.length == 10
-        ? rawBands.map((e) => (e as num).toDouble()).toList()
-        : List<double>.from(kStudioPresets[preset] ?? kStudioPresets['Flat']!);
-    state = state.copyWith(
-      enabled: _box.get('enabled', defaultValue: true) as bool,
-      activePreset: preset,
-      bands: bands,
-      bassBoost: (_box.get('bassBoost', defaultValue: 78.0) as num).toDouble(),
-      reverb: (_box.get('reverb', defaultValue: 20.0) as num).toDouble(),
-      spatial: (_box.get('spatial', defaultValue: 45.0) as num).toDouble(),
-      preampDb: (_box.get('preampDb', defaultValue: 0.0) as num).toDouble(),
+    _bgService = BackgroundEqService(
+      presetManager: _presetManager,
+      initialProfile: _presetManager.loadActiveProfile(),
+      initialDspEnabled: state.enabled,
     );
     _syncDsp();
   }
 
   void toggleEnabled(bool value) {
     state = state.copyWith(enabled: value);
-    _box.put('enabled', value);
+    _persistCurrentState();
     Equalizer.setEnabled(value);
     BassBoost.setEnabled(value);
+  }
+
+  Future<void> toggleBackgroundService(bool enabled) async {
+    state = state.copyWith(backgroundServiceEnabled: enabled);
+    if (enabled) {
+      await _bgService.startBackgroundService(
+        profile: _currentProfileSnapshot(),
+        dspEnabled: state.enabled,
+      );
+    } else {
+      await _bgService.stopBackgroundService();
+    }
   }
 
   void setBand(int index, double gainDb) {
     final updated = List<double>.from(state.bands);
     updated[index] = gainDb.clamp(-15.0, 15.0);
     state = state.copyWith(bands: updated, activePreset: 'Custom');
-    _box.put('bands', updated);
-    _box.put('preset', 'Custom');
+    _persistCurrentState();
     Equalizer.setBandLevel(index, (gainDb * 100).round());
   }
 
-  void selectPreset(String name) {
-    final presetBands = kStudioPresets[name];
-    if (presetBands == null) return;
-    final copied = List<double>.from(presetBands);
-    state = state.copyWith(activePreset: name, bands: copied);
-    _box.put('preset', name);
-    _box.put('bands', copied);
+  void applyProfile(SoundProfile profile) {
+    state = state.copyWith(
+      activePreset: profile.name,
+      bands: List<double>.from(profile.bands),
+      bassBoost: profile.bassBoost,
+      reverb: profile.reverb,
+      reverbRoom: profile.reverbRoom,
+      spatial: profile.spatial,
+      preampDb: profile.preampDb,
+    );
+    _persistCurrentState();
     _syncDsp();
+  }
+
+  Future<void> saveCustomProfile(String name, String description) async {
+    final saved = await _presetManager.saveCustomPreset(
+      name: name,
+      description: description,
+      bands: state.bands,
+      bassBoost: state.bassBoost,
+      reverb: state.reverb,
+      reverbRoom: state.reverbRoom,
+      spatial: state.spatial,
+      preampDb: state.preampDb,
+    );
+    state = state.copyWith(
+      activePreset: saved.name,
+      allPresets: _presetManager.getAllPresets(),
+    );
+    _persistCurrentState();
+  }
+
+  Future<void> deleteCustomProfile(SoundProfile profile) async {
+    if (profile.isBuiltIn) return;
+    await _presetManager.deleteCustomPreset(profile.id);
+    state = state.copyWith(
+      allPresets: _presetManager.getAllPresets(),
+    );
   }
 
   void setBassBoost(double value) {
     state = state.copyWith(bassBoost: value);
-    _box.put('bassBoost', value);
+    _persistCurrentState();
     BassBoost.setStrength((value * 10).round());
   }
 
   void setReverb(double value) {
     state = state.copyWith(reverb: value);
-    _box.put('reverb', value);
+    _persistCurrentState();
   }
 
   void setSpatial(double value) {
     state = state.copyWith(spatial: value);
-    _box.put('spatial', value);
+    _persistCurrentState();
   }
 
   void setPreamp(double value) {
     state = state.copyWith(preampDb: value);
-    _box.put('preampDb', value);
+    _persistCurrentState();
+  }
+
+  SoundProfile _currentProfileSnapshot() {
+    return SoundProfile(
+      id: 'active',
+      name: state.activePreset,
+      bands: state.bands,
+      bassBoost: state.bassBoost,
+      reverb: state.reverb,
+      reverbRoom: state.reverbRoom,
+      spatial: state.spatial,
+      preampDb: state.preampDb,
+    );
+  }
+
+  void _persistCurrentState() {
+    final snapshot = _currentProfileSnapshot();
+    _presetManager.saveActiveState(
+      profile: snapshot,
+      enabled: state.enabled,
+    );
+    if (state.backgroundServiceEnabled) {
+      _bgService.updateNotificationState(
+        profile: snapshot,
+        dspEnabled: state.enabled,
+      );
+    }
   }
 
   void _syncDsp() {
@@ -162,9 +225,17 @@ class EqNotifier extends StateNotifier<EqState> {
       Equalizer.setBandLevel(i, (state.bands[i] * 100).round());
     }
   }
+
+  @override
+  void dispose() {
+    _bgService.dispose();
+    super.dispose();
+  }
 }
 
-final eqProvider = StateNotifierProvider<EqNotifier, EqState>((ref) => EqNotifier());
+final eqProvider = StateNotifierProvider<EqNotifier, EqState>(
+  (ref) => EqNotifier(globalPresetManager),
+);
 
 class VoidEqUltraApp extends StatelessWidget {
   const VoidEqUltraApp({super.key});
@@ -192,6 +263,52 @@ class VoidEqUltraApp extends StatelessWidget {
 class EqultraHomeScreen extends ConsumerWidget {
   const EqultraHomeScreen({super.key});
 
+  Future<void> _showSavePresetDialog(
+    BuildContext context,
+    EqNotifier notifier,
+  ) async {
+    final nameCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF101522),
+        title: const Text('Save Custom Sound Profile'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Profile Name (e.g. Sub Bass X)',
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: descCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Description (optional)',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              await notifier.saveCustomProfile(nameCtrl.text, descCtrl.text);
+              if (ctx.mounted) Navigator.of(ctx).pop();
+            },
+            child: const Text('Save to Hive'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final eq = ref.watch(eqProvider);
@@ -205,6 +322,11 @@ class EqultraHomeScreen extends ConsumerWidget {
           style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00F0FF)),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.bookmark_add, color: Color(0xFF00F0FF)),
+            tooltip: 'Save Custom Preset',
+            onPressed: () => _showSavePresetDialog(context, notifier),
+          ),
           Switch(
             value: eq.enabled,
             activeColor: const Color(0xFF00F0FF),
@@ -218,7 +340,59 @@ class EqultraHomeScreen extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Frequency Response Curve Visualizer
+            // Background Service & Notification Toggle Card
+            Container(
+              margin: const EdgeInsets.only(bottom: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0A0E17),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: eq.backgroundServiceEnabled
+                      ? const Color(0xFF00E676)
+                      : const Color(0xFF1E273C),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.notifications_active,
+                    color: eq.backgroundServiceEnabled
+                        ? const Color(0xFF00E676)
+                        : Colors.white54,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Keep Equalizer Active in Background',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        Text(
+                          eq.backgroundServiceEnabled
+                              ? 'Foreground notification & Global Session 0 active across apps'
+                              : 'Paused when switching away from VoidEQ Equltra',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: eq.backgroundServiceEnabled,
+                    activeColor: const Color(0xFF00E676),
+                    onChanged: notifier.toggleBackgroundService,
+                  ),
+                ],
+              ),
+            ),
             Container(
               height: 140,
               width: double.infinity,
@@ -233,31 +407,58 @@ class EqultraHomeScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 16),
-            // Preset Chips (All 9 Presets)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'SOUND PROFILES (${eq.allPresets.length})',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white70,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => _showSavePresetDialog(context, notifier),
+                  icon: const Icon(Icons.add, size: 16, color: Color(0xFF00F0FF)),
+                  label: const Text(
+                    'SAVE PROFILE',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF00F0FF)),
+                  ),
+                ),
+              ],
+            ),
             SizedBox(
-              height: 42,
-              child: ListView(
+              height: 44,
+              child: ListView.builder(
                 scrollDirection: Axis.horizontal,
-                children: kStudioPresets.keys.map((preset) {
-                  final selected = eq.activePreset == preset;
+                itemCount: eq.allPresets.length,
+                itemBuilder: (context, idx) {
+                  final profile = eq.allPresets[idx];
+                  final selected =
+                      eq.activePreset.toLowerCase() == profile.name.toLowerCase();
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Text(preset),
+                    child: InputChip(
+                      label: Text(profile.name),
                       selected: selected,
                       selectedColor: const Color(0xFF00F0FF),
                       labelStyle: TextStyle(
                         color: selected ? Colors.black : Colors.white,
                         fontWeight: FontWeight.bold,
                       ),
-                      onSelected: (_) => notifier.selectPreset(preset),
+                      onSelected: (_) => notifier.applyProfile(profile),
+                      onDeleted: profile.isBuiltIn
+                          ? null
+                          : () => notifier.deleteCustomProfile(profile),
+                      deleteIconColor:
+                          selected ? Colors.black87 : const Color(0xFFFF2A85),
                     ),
                   );
-                }).toList(),
+                },
               ),
             ),
             const SizedBox(height: 16),
-            // 10-Band Vertical Sliders
             SizedBox(
               height: 240,
               child: ListView.builder(
@@ -309,7 +510,6 @@ class EqultraHomeScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 20),
-            // Bass Boost, Reverb, Spatial & Preamp Controls
             _buildMacroSlider(
               label: 'Bass Boost (${eq.bassBoost.round()}%)',
               value: eq.bassBoost,
