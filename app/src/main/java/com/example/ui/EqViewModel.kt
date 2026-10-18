@@ -10,6 +10,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.EqDatabase
 import com.example.data.EqPresetEntity
+import com.example.data.PresetImportExportParser
 import com.example.data.PresetManager
 import com.example.dsp.AudioDspEngine
 import com.example.service.EqForegroundService
@@ -20,11 +21,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 data class EqUiState(
     val isMasterEnabled: Boolean = true,
     val isBackgroundServiceEnabled: Boolean = true,
-    val selectedTab: Int = 0, // 0: EQ, 1: Bass & Spatial, 2: Presets, 3: Get APK
+    val selectedTab: Int = 0, // 0: EQ, 1: Bass & DSP, 2: Device Presets, 3: Presets, 4: Get APK
+    val deviceSearchQuery: String = "",
     val activePresetName: String = "Bass Boost",
     val bandGainsDb: List<Float> = EqPresetEntity.BUILT_IN_PRESETS[1].getBandGains(),
     val bassBoostStrength: Int = 78, // 0..100
@@ -34,7 +37,8 @@ data class EqUiState(
     val preampDb: Float = -2.0f, // -12..+12 dB
     val softLimiterEnabled: Boolean = true,
     val isGlobalSystemMode: Boolean = true,
-    val showSavePresetDialog: Boolean = false
+    val showSavePresetDialog: Boolean = false,
+    val showPasteImportDialog: Boolean = false
 )
 
 class EqViewModel(application: Application) : AndroidViewModel(application) {
@@ -45,7 +49,9 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState: MutableStateFlow<EqUiState>
     val uiState: StateFlow<EqUiState>
 
+    val devicePresets: List<EqPresetEntity>
     val allPresets: StateFlow<List<EqPresetEntity>>
+    val importedPresets: StateFlow<List<EqPresetEntity>>
     val isPlayingTestLoop: StateFlow<Boolean>
     val isAudioRecordActive: StateFlow<Boolean>
     val spectrumBins: StateFlow<List<Float>>
@@ -66,6 +72,7 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
         val db = EqDatabase.getInstance(application)
         presetManager = PresetManager(application, db.eqPresetDao())
         dspEngine = AudioDspEngine(application, viewModelScope)
+        devicePresets = presetManager.devicePresets
 
         val restored = presetManager.loadSavedActiveProfile()
         val bgEnabled = presetManager.isBackgroundServiceEnabled()
@@ -89,6 +96,13 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
                 scope = viewModelScope,
                 started = SharingStarted.WhileSubscribed(5000),
                 initialValue = EqPresetEntity.BUILT_IN_PRESETS
+            )
+
+        importedPresets = presetManager.importedProfiles
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList()
             )
 
         isPlayingTestLoop = dspEngine.isPlayingTestLoop
@@ -141,7 +155,11 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectTab(tabIndex: Int) {
-        _uiState.update { it.copy(selectedTab = tabIndex.coerceIn(0, 3)) }
+        _uiState.update { it.copy(selectedTab = tabIndex.coerceIn(0, 4)) }
+    }
+
+    fun updateDeviceSearchQuery(query: String) {
+        _uiState.update { it.copy(deviceSearchQuery = query) }
     }
 
     fun toggleMasterEnabled() {
@@ -228,6 +246,10 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(showSavePresetDialog = visible) }
     }
 
+    fun setPasteImportDialogVisible(visible: Boolean) {
+        _uiState.update { it.copy(showPasteImportDialog = visible) }
+    }
+
     fun saveCurrentAsCustomPreset(name: String, description: String) {
         val state = _uiState.value
         viewModelScope.launch {
@@ -251,6 +273,51 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
                 EqForegroundService.startOrUpdate(getApplication())
             }
         }
+    }
+
+    fun importPresetFromContent(
+        rawContent: String,
+        fallbackFileName: String = "Imported Preset",
+        onResult: (EqPresetEntity?) -> Unit = {}
+    ) {
+        val parsed = PresetImportExportParser.parseImportedContent(rawContent, fallbackFileName)
+        if (parsed == null) {
+            onResult(null)
+            return
+        }
+        viewModelScope.launch {
+            val saved = presetManager.saveImportedSoundProfile(parsed)
+            _uiState.update {
+                it.copy(
+                    activePresetName = saved.name,
+                    bandGainsDb = saved.getBandGains(),
+                    bassBoostStrength = saved.bassBoostStrength,
+                    reverbLevel = saved.reverbLevel,
+                    reverbRoom = saved.reverbRoom,
+                    spatialLevel = saved.spatialLevel,
+                    preampDb = saved.preampDb,
+                    showPasteImportDialog = false
+                )
+            }
+            syncDspEngine()
+            onResult(saved)
+        }
+    }
+
+    fun buildCurrentPresetExportJson(): String {
+        val s = _uiState.value
+        val snapshot = EqPresetEntity(
+            name = s.activePresetName,
+            category = "Custom",
+            description = "Exported from VoidEQ Equltra",
+            bandsCsv = s.bandGainsDb.joinToString(",") { String.format(Locale.US, "%.1f", it) },
+            bassBoostStrength = s.bassBoostStrength,
+            reverbLevel = s.reverbLevel,
+            reverbRoom = s.reverbRoom,
+            spatialLevel = s.spatialLevel,
+            preampDb = s.preampDb
+        )
+        return snapshot.toExportJson()
     }
 
     fun deleteCustomPreset(preset: EqPresetEntity) {

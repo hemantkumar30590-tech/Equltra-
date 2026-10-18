@@ -1,5 +1,5 @@
 name: equltra
-description: VoidEQ Equltra - AMOLED 10-Band Equalizer, Bass Boost, Reverb & Spatial Audio App.
+description: VoidEQ Equltra - AMOLED 10-Band Equalizer, Bass Boost, Reverb, Spatial Audio & Device Presets App.
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -15,6 +15,9 @@ dependencies:
   hive: ^2.2.3
   hive_flutter: ^1.1.0
   flutter_riverpod: ^2.5.1
+  file_picker: ^8.0.0
+  share_plus: ^7.0.0
+  path_provider: ^2.1.3
 
 dependency_overrides:
   equalizer:

@@ -5,11 +5,13 @@ import android.content.SharedPreferences
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import java.util.Locale
 
 /**
- * PresetManager coordinates storing and loading custom 10-band equalizer sound profiles
- * and active DSP state (mirroring the Hive box structure used in the Flutter module).
+ * PresetManager coordinates storing and loading custom 10-band equalizer sound profiles,
+ * 15 Oct 2026 Device-Specific EQ presets, imported AutoEQ / .json / .equltra profiles,
+ * and active DSP state.
  */
 class PresetManager(
     context: Context,
@@ -18,9 +20,16 @@ class PresetManager(
     private val activeStateBox: SharedPreferences =
         context.applicationContext.getSharedPreferences(ACTIVE_STATE_BOX_NAME, Context.MODE_PRIVATE)
 
+    val devicePresets: List<EqPresetEntity> = EqPresetEntity.DEVICE_PRESETS
+
     val allSoundProfiles: Flow<List<EqPresetEntity>> =
         dao.getAllCustomPresets().combine(flowOf(EqPresetEntity.BUILT_IN_PRESETS)) { custom, builtIn ->
             builtIn + custom
+        }
+
+    val importedProfiles: Flow<List<EqPresetEntity>> =
+        dao.getAllCustomPresets().map { list ->
+            list.filter { it.category.equals("Imported", ignoreCase = true) }
         }
 
     suspend fun saveCustomSoundProfile(
@@ -31,7 +40,8 @@ class PresetManager(
         reverbLevel: Int,
         reverbRoom: String,
         spatialLevel: Int,
-        preampDb: Float
+        preampDb: Float,
+        category: String = "Custom"
     ): EqPresetEntity {
         val cleanName = name.trim().ifEmpty { "My Sound Profile" }
         val cleanDesc = description.trim().ifEmpty { "User saved 10-band studio profile" }
@@ -40,7 +50,7 @@ class PresetManager(
         }
         val preset = EqPresetEntity(
             name = cleanName,
-            category = "Custom",
+            category = category,
             description = cleanDesc,
             bandsCsv = clampedBands.joinToString(",") { String.format(Locale.US, "%.1f", it) },
             bassBoostStrength = bassBoostStrength.coerceIn(0, 100),
@@ -62,6 +72,22 @@ class PresetManager(
             preampDb = preset.preampDb
         )
         return preset
+    }
+
+    suspend fun saveImportedSoundProfile(imported: EqPresetEntity): EqPresetEntity {
+        val tagged = imported.copy(category = "Imported", isBuiltIn = false)
+        dao.insertPreset(tagged)
+        persistActiveProfileState(
+            enabled = isDspEnabled(),
+            activePresetName = tagged.name,
+            bandGainsDb = tagged.getBandGains(),
+            bassBoostStrength = tagged.bassBoostStrength,
+            reverbLevel = tagged.reverbLevel,
+            reverbRoom = tagged.reverbRoom,
+            spatialLevel = tagged.spatialLevel,
+            preampDb = tagged.preampDb
+        )
+        return tagged
     }
 
     suspend fun deleteCustomSoundProfile(preset: EqPresetEntity) {
@@ -126,7 +152,8 @@ class PresetManager(
             reverbRoom = reverbRoom,
             spatialLevel = spatialLevel,
             preampDb = preampDb,
-            isBuiltIn = EqPresetEntity.BUILT_IN_PRESETS.any { it.name.equals(presetName, ignoreCase = true) }
+            isBuiltIn = (EqPresetEntity.BUILT_IN_PRESETS + EqPresetEntity.DEVICE_PRESETS)
+                .any { it.name.equals(presetName, ignoreCase = true) }
         )
     }
 

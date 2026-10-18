@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
@@ -112,6 +113,7 @@ fun EqultraScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val presets by viewModel.allPresets.collectAsStateWithLifecycle()
+    val importedPresets by viewModel.importedPresets.collectAsStateWithLifecycle()
     val isPlayingTest by viewModel.isPlayingTestLoop.collectAsStateWithLifecycle()
     val isAudioRecordActive by viewModel.isAudioRecordActive.collectAsStateWithLifecycle()
     val spectrumBins by viewModel.spectrumBins.collectAsStateWithLifecycle()
@@ -138,8 +140,9 @@ fun EqultraScreen(
                 val items = listOf(
                     Triple(0, "10-Band EQ", Icons.Default.Equalizer),
                     Triple(1, "Bass & DSP", Icons.Default.Speaker),
-                    Triple(2, "Presets", Icons.Default.LibraryMusic),
-                    Triple(3, "Get APK", Icons.Default.Download)
+                    Triple(2, "Device Presets", Icons.Default.Headphones),
+                    Triple(3, "Presets", Icons.Default.LibraryMusic),
+                    Triple(4, "Get APK", Icons.Default.Download)
                 )
                 items.forEach { (index, label, icon) ->
                     NavigationBarItem(
@@ -155,7 +158,9 @@ fun EqultraScreen(
                         label = {
                             Text(
                                 text = label,
-                                style = MaterialTheme.typography.labelSmall
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         },
                         colors = NavigationBarItemDefaults.colors(
@@ -282,17 +287,52 @@ fun EqultraScreen(
                         onToggleLimiter = viewModel::toggleSoftLimiter
                     )
 
-                    2 -> PresetsLibraryTab(
+                    2 -> DevicePresetsTab(
+                        devicePresets = viewModel.devicePresets,
+                        searchQuery = uiState.deviceSearchQuery,
+                        activePresetName = uiState.activePresetName,
+                        onSearchQueryChanged = viewModel::updateDeviceSearchQuery,
+                        onApplyDevicePreset = { device ->
+                            viewModel.applyPreset(device)
+                            Toast.makeText(
+                                context,
+                                "Applied ${device.name} 10-Band EQ!",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    )
+
+                    3 -> PresetsAndImportExportTab(
                         presets = presets,
+                        importedPresets = importedPresets,
                         activePresetName = uiState.activePresetName,
                         onSelectPreset = {
                             viewModel.applyPreset(it)
                         },
                         onDeleteCustomPreset = viewModel::deleteCustomPreset,
-                        onOpenSaveDialog = { viewModel.setSavePresetDialogVisible(true) }
+                        onOpenSaveDialog = { viewModel.setSavePresetDialogVisible(true) },
+                        onOpenPasteImportDialog = { viewModel.setPasteImportDialogVisible(true) },
+                        onImportFromContent = { content, fileName ->
+                            viewModel.importPresetFromContent(content, fileName) { saved ->
+                                if (saved != null) {
+                                    Toast.makeText(
+                                        context,
+                                        "Imported '${saved.name}' into My Imports!",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    Toast.makeText(
+                                        context,
+                                        "Invalid preset format (.json, AutoEQ .txt, or .equltra required)",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
+                        },
+                        onBuildExportJson = viewModel::buildCurrentPresetExportJson
                     )
 
-                    3 -> ApkAndGithubGuideTab()
+                    4 -> ApkAndGithubGuideTab()
                 }
             }
         }
@@ -303,6 +343,30 @@ fun EqultraScreen(
             onDismiss = { viewModel.setSavePresetDialogVisible(false) },
             onConfirm = { name, desc ->
                 viewModel.saveCurrentAsCustomPreset(name, desc)
+            }
+        )
+    }
+
+    if (uiState.showPasteImportDialog) {
+        val context = LocalContext.current
+        PasteAutoEqOrJsonImportDialog(
+            onDismiss = { viewModel.setPasteImportDialogVisible(false) },
+            onImportContent = { rawContent, fallbackName ->
+                viewModel.importPresetFromContent(rawContent, fallbackName) { saved ->
+                    if (saved != null) {
+                        Toast.makeText(
+                            context,
+                            "Imported '${saved.name}' into My Imports!",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        Toast.makeText(
+                            context,
+                            "Could not parse preset content",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
             }
         )
     }
@@ -912,170 +976,6 @@ private fun BassAndSpatialDspTab(
         }
 
         Spacer(modifier = Modifier.height(20.dp))
-    }
-}
-
-@Composable
-private fun PresetsLibraryTab(
-    presets: List<EqPresetEntity>,
-    activePresetName: String,
-    onSelectPreset: (EqPresetEntity) -> Unit,
-    onDeleteCustomPreset: (EqPresetEntity) -> Unit,
-    onOpenSaveDialog: () -> Unit
-) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text(
-                    text = "Studio & Custom Presets (${presets.size})",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "9 Mastering Profiles + Local Custom Storage",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp),
-                    color = TextSecondary
-                )
-            }
-            Button(
-                onClick = onOpenSaveDialog,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = ElectricCyan,
-                    contentColor = AmoledBlack
-                ),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.testTag("new_custom_preset_btn")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "New Custom Preset",
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "SAVE CURRENT",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
-            items(presets, key = { "${it.id}_${it.name}" }) { preset ->
-                val isSelected = activePresetName.equals(preset.name, ignoreCase = true)
-                Surface(
-                    color = if (isSelected) Color(0xFF102232) else ObsidianCard,
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(
-                        width = if (isSelected) 1.5.dp else 1.dp,
-                        color = if (isSelected) ElectricCyan else ObsidianBorder
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSelectPreset(preset) }
-                        .testTag("preset_card_${preset.name}")
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.Tune,
-                                    contentDescription = preset.name,
-                                    tint = if (isSelected) ElectricCyan else TextSecondary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text(
-                                        text = preset.name,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = TextPrimary,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = preset.description,
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp),
-                                        color = TextSecondary
-                                    )
-                                }
-                            }
-
-                            if (!preset.isBuiltIn) {
-                                IconButton(
-                                    onClick = { onDeleteCustomPreset(preset) },
-                                    modifier = Modifier.minimumInteractiveComponentSize()
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Delete ${preset.name}",
-                                        tint = NeonMagenta
-                                    )
-                                }
-                            } else {
-                                Text(
-                                    text = preset.category.uppercase(Locale.US),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = ElectricCyan,
-                                    modifier = Modifier
-                                        .background(AmoledBlack, RoundedCornerShape(6.dp))
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Mini 10-band bar preview + DSP badges
-                        val gains = preset.getBandGains()
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                gains.forEachIndexed { idx, db ->
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text(
-                                            text = String.format(Locale.US, "%+.0f", db),
-                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
-                                            color = if (db > 0f) ElectricCyan else TextSecondary
-                                        )
-                                        Text(
-                                            text = EqPresetEntity.FREQUENCY_LABELS[idx].replace("Hz", ""),
-                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
-                                            color = TextMuted
-                                        )
-                                    }
-                                }
-                            }
-
-                            Text(
-                                text = "BASS ${preset.bassBoostStrength}% • 3D ${preset.spatialLevel}%",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                                color = NeonMagenta
-                            )
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
