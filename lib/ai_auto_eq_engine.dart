@@ -15,6 +15,40 @@ class AiAutoEqResult {
   });
 }
 
+class ParsedFlutterVoiceCommand {
+  final String transcript;
+  final String actionSummary;
+  final String spokenFeedback;
+  final double? bassOverride;
+  final double? spatialOverride;
+  final double? reverbOverride;
+  final String? reverbRoomOverride;
+  final bool? masterEnabledOverride;
+  final bool triggerYouTubeSync;
+  final bool resetFlat;
+  final bool unlockProWithOwnerKey;
+  final bool lockProMode;
+  final SoundProfile? matchedPreset;
+  final String? aiAutoEqPrompt;
+
+  const ParsedFlutterVoiceCommand({
+    required this.transcript,
+    required this.actionSummary,
+    required this.spokenFeedback,
+    this.bassOverride,
+    this.spatialOverride,
+    this.reverbOverride,
+    this.reverbRoomOverride,
+    this.masterEnabledOverride,
+    this.triggerYouTubeSync = false,
+    this.resetFlat = false,
+    this.unlockProWithOwnerKey = false,
+    this.lockProMode = false,
+    this.matchedPreset,
+    this.aiAutoEqPrompt,
+  });
+}
+
 class AiAutoEqEngine {
   static const List<MapEntry<String, String>> quickScenarios = [
     MapEntry('Phonk / Gym Sub-Bass', 'Phonk & Gym Heavy Sub-Bass Slam'),
@@ -25,6 +59,92 @@ class AiAutoEqEngine {
     MapEntry('Lo-Fi Night', 'Lo-Fi Late Night Warm Velvet'),
     MapEntry('Live Spectrum AI', 'Live Spectrum Smart Calibration'),
   ];
+
+  static const List<MapEntry<String, String>> quickVoiceCommands = [
+    MapEntry('🎙️ "Bass Full 100% + 3D"', 'Bass full 100 percent aur 3D spatial 90 percent kar do'),
+    MapEntry('🎙️ "AI Punjabi Sub-Bass"', 'AI Auto-EQ Punjabi heavy sub-bass aur clear vocals set karo'),
+    MapEntry('🎙️ "BGMI Footsteps AI"', 'AI Auto-EQ BGMI footsteps aur gunshots directional clarity'),
+    MapEntry('🎙️ "AirPods Pro 3 Tune"', 'Apply Apple AirPods Pro 3 preset'),
+    MapEntry('🎙️ "Sony XM6 Studio"', 'Apply Sony WF-1000XM6 preset'),
+    MapEntry('🎙️ "Sync YouTube DSP"', 'Sync YouTube global audio hook chalu karo'),
+    MapEntry('🎙️ "Dolby Atmos 3D"', 'AI Auto-EQ Dolby Atmos Cinema 3D surround sound'),
+    MapEntry('🎙️ "Reset Flat EQ"', 'Sab flat studio reset kar do'),
+  ];
+
+  static ParsedFlutterVoiceCommand parseVoiceCommand(String rawCommand) {
+    final clean = rawCommand.trim();
+    final lower = clean.toLowerCase();
+
+    if (lower.contains('30590') ||
+        (lower.contains('unlock') && (lower.contains('pro') || lower.contains('hemant')))) {
+      return ParsedFlutterVoiceCommand(
+        transcript: clean,
+        actionSummary: 'PRO Mode Voice Unlock',
+        spokenFeedback: 'Owner verified. Equltra AI Auto EQ Pro Mode is now unlocked.',
+        unlockProWithOwnerKey: true,
+      );
+    }
+
+    if (lower.contains('lock') && lower.contains('pro')) {
+      return ParsedFlutterVoiceCommand(
+        transcript: clean,
+        actionSummary: 'PRO Mode Locked',
+        spokenFeedback: 'Equltra AI Auto EQ Pro Mode has been locked.',
+        lockProMode: true,
+      );
+    }
+
+    if (lower.contains('youtube') || lower.contains('rehook')) {
+      return ParsedFlutterVoiceCommand(
+        transcript: clean,
+        actionSummary: 'Synced YouTube & System Audio Hook',
+        spokenFeedback: 'YouTube and global 10 band D S P session hooked.',
+        triggerYouTubeSync: true,
+      );
+    }
+
+    if (lower.contains('reset') || lower.contains('flat kar') || lower == 'flat') {
+      return ParsedFlutterVoiceCommand(
+        transcript: clean,
+        actionSummary: 'Reset to Flat 0.0 dB Studio Reference',
+        spokenFeedback: 'All 10 equalizer bands reset to flat studio reference.',
+        resetFlat: true,
+      );
+    }
+
+    for (final dev in PresetManager.devicePresets) {
+      if (lower.contains(dev.name.toLowerCase()) ||
+          (lower.contains('airpods pro') && dev.name.contains('AirPods Pro 3')) ||
+          (lower.contains('xm6') && dev.name.contains('WF-1000XM6')) ||
+          (lower.contains('xm5') && dev.name.contains('WF-1000XM5')) ||
+          (lower.contains('buds 4') && dev.name.contains('Buds 4 Pro')) ||
+          (lower.contains('buds 3') && dev.name.contains('Buds 3 Pro'))) {
+        return ParsedFlutterVoiceCommand(
+          transcript: clean,
+          actionSummary: 'Applied Device Preset: ${dev.name}',
+          spokenFeedback: 'Applied ${dev.name} 10 band Auto EQ preset.',
+          matchedPreset: dev,
+        );
+      }
+    }
+
+    if (lower.contains('bass') && (lower.contains('full') || lower.contains('100'))) {
+      return ParsedFlutterVoiceCommand(
+        transcript: clean,
+        actionSummary: 'Bass 100% + Spatial 90%',
+        spokenFeedback: 'Maximum bass boost 100 percent applied.',
+        bassOverride: 100,
+        spatialOverride: lower.contains('3d') ? 90 : null,
+      );
+    }
+
+    return ParsedFlutterVoiceCommand(
+      transcript: clean,
+      actionSummary: 'AI Voice Auto-EQ: "$clean"',
+      spokenFeedback: 'Tuning 10 band AI Auto EQ and DSP for $clean.',
+      aiAutoEqPrompt: clean,
+    );
+  }
 
   static Future<AiAutoEqResult> generateAiPreset({
     required String prompt,

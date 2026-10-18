@@ -13,7 +13,9 @@ import com.example.data.EqPresetEntity
 import com.example.data.PresetImportExportParser
 import com.example.data.PresetManager
 import com.example.dsp.AiAutoEqEngine
+import com.example.dsp.AiVoiceControlEngine
 import com.example.dsp.AudioDspEngine
+import com.example.dsp.VoiceControlAction
 import com.example.service.EqForegroundService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -42,18 +44,24 @@ data class EqUiState(
     val showPasteImportDialog: Boolean = false,
     val showAiAutoEqDialog: Boolean = false,
     val showAiProUnlockDialog: Boolean = false,
+    val showVoiceControlDialog: Boolean = false,
     val isAiProUnlocked: Boolean = false,
     val isGeneratingAiEq: Boolean = false,
     val aiPromptInput: String = "",
     val aiSelectedDevice: String = "Apple AirPods Pro 3",
-    val lastAiAnalysis: String = "PRO MODE LOCKED — Exclusive AI Auto-EQ 10-Band + DSP Mastering Engine. Unlock with Owner Key to use.",
-    val lastAiEngineBadge: String = "Gemini 3.5 Flash AI"
+    val lastAiAnalysis: String = "PRO MODE LOCKED — Exclusive AI Auto-EQ + Voice Control Mastering Engine. Unlock with Owner Key to use.",
+    val lastAiEngineBadge: String = "Gemini 3.5 Flash AI",
+    val lastVoiceCommandSummary: String = "Say \"Bass full 100%\", \"AirPods Pro 3\", \"Sync YouTube\", or \"AI Punjabi Bass\"",
+    val voiceCommandHistory: List<String> = listOf(
+        "🎙️ Ready: Speak in Hindi, Hinglish, or English to control 10-Band EQ, Bass, 3D, Presets & AI Auto-EQ"
+    )
 )
 
 class EqViewModel(application: Application) : AndroidViewModel(application) {
 
     private val presetManager: PresetManager
     private val dspEngine: AudioDspEngine
+    private val voiceEngine: AiVoiceControlEngine
 
     private val _uiState: MutableStateFlow<EqUiState>
     val uiState: StateFlow<EqUiState>
@@ -73,6 +81,13 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     val peakDb: StateFlow<Float>
     val hardwareStatus: StateFlow<String>
 
+    val isVoiceListening: StateFlow<Boolean>
+    val isVoiceHandsFree: StateFlow<Boolean>
+    val isVoiceTtsEnabled: StateFlow<Boolean>
+    val voiceRmsLevel: StateFlow<Float>
+    val voiceLiveTranscript: StateFlow<String>
+    val voiceStatusBadge: StateFlow<String>
+
     private val serviceReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == EqForegroundService.ACTION_SERVICE_STATE_CHANGED) {
@@ -85,6 +100,9 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
         val db = EqDatabase.getInstance(application)
         presetManager = PresetManager(application, db.eqPresetDao())
         dspEngine = AudioDspEngine(application, viewModelScope)
+        voiceEngine = AiVoiceControlEngine(application, viewModelScope) { recognizedSpeech ->
+            executeVoiceCommand(recognizedSpeech)
+        }
         devicePresets = presetManager.devicePresets
 
         val restored = presetManager.loadSavedActiveProfile()
@@ -103,9 +121,9 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
                 spatialLevel = restored.spatialLevel,
                 preampDb = restored.preampDb,
                 lastAiAnalysis = if (proUnlocked) {
-                    "OWNER PRO UNLOCKED — Tap any AI Scenario Chip or open AI Studio to auto-tune all 10 bands, Bass Boost, Spatial 3D & Preamp."
+                    "OWNER PRO UNLOCKED 👑 — Tap any AI Scenario Chip, use Voice Control 🎙️, or open AI Studio to auto-tune all 10 bands & DSP."
                 } else {
-                    "PRO MODE LOCKED 🔒 — Exclusive AI Auto-EQ 10-Band + DSP Mastering Engine. Tap UNLOCK PRO (Owner Only) to access."
+                    "PRO MODE LOCKED 🔒 — Exclusive AI Auto-EQ + Voice Control Mastering Engine. Tap UNLOCK PRO (or say 'Unlock Pro 30590') to access."
                 }
             )
         )
@@ -136,6 +154,13 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
         dominantFreqHz = dspEngine.dominantFreqHz
         peakDb = dspEngine.peakDb
         hardwareStatus = dspEngine.hardwareStatus
+
+        isVoiceListening = voiceEngine.isListening
+        isVoiceHandsFree = voiceEngine.isHandsFreeLoop
+        isVoiceTtsEnabled = voiceEngine.isVoiceTtsEnabled
+        voiceRmsLevel = voiceEngine.voiceRmsLevel
+        voiceLiveTranscript = voiceEngine.liveTranscript
+        voiceStatusBadge = voiceEngine.voiceStatusBadge
 
         runCatching {
             ContextCompat.registerReceiver(
@@ -188,6 +213,11 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleMasterEnabled() {
         _uiState.update { it.copy(isMasterEnabled = !it.isMasterEnabled) }
+        syncDspEngine()
+    }
+
+    fun setMasterEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(isMasterEnabled = enabled) }
         syncDspEngine()
     }
 
@@ -286,6 +316,168 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(showAiProUnlockDialog = visible) }
     }
 
+    fun setVoiceControlDialogVisible(visible: Boolean) {
+        _uiState.update { it.copy(showVoiceControlDialog = visible) }
+    }
+
+    fun startVoiceListening() {
+        voiceEngine.startListening()
+    }
+
+    fun stopVoiceListening() {
+        voiceEngine.stopListening()
+    }
+
+    fun toggleVoiceHandsFree() {
+        val next = !isVoiceHandsFree.value
+        voiceEngine.setHandsFreeLoop(next)
+        if (next && !isVoiceListening.value) {
+            voiceEngine.startListening()
+        } else if (!next && isVoiceListening.value) {
+            voiceEngine.stopListening()
+        }
+    }
+
+    fun toggleVoiceTts() {
+        voiceEngine.setVoiceTtsEnabled(!isVoiceTtsEnabled.value)
+    }
+
+    fun executeVoiceCommand(
+        rawSpokenText: String,
+        onFeedbackMessage: (String) -> Unit = {}
+    ) {
+        val cleanText = rawSpokenText.trim()
+        if (cleanText.isEmpty()) return
+
+        val currentState = _uiState.value
+        val parsed = AiVoiceControlEngine.parseVoiceCommand(
+            rawCommand = cleanText,
+            currentBands = currentState.bandGainsDb,
+            devicePresets = devicePresets,
+            allPresets = allPresets.value
+        )
+
+        var unlockedNow = currentState.isAiProUnlocked
+
+        for (action in parsed.actions) {
+            when (action) {
+                is VoiceControlAction.UnlockProWithKey -> {
+                    val ok = tryUnlockAiProMode(action.key)
+                    unlockedNow = ok
+                }
+                is VoiceControlAction.LockProMode -> {
+                    lockAiProMode()
+                    unlockedNow = false
+                }
+                is VoiceControlAction.SelectTab -> {
+                    selectTab(action.tabIndex)
+                }
+                is VoiceControlAction.SetMasterEnabled -> {
+                    setMasterEnabled(action.enabled)
+                }
+                is VoiceControlAction.SetBackgroundService -> {
+                    setBackgroundServiceEnabled(action.enabled)
+                }
+                is VoiceControlAction.SyncYouTube -> {
+                    rehookYouTubeAudio()
+                }
+                is VoiceControlAction.SetTestAudioLoop -> {
+                    if (isPlayingTestLoop.value != action.play) {
+                        toggleTestAudioLoop()
+                    }
+                }
+                is VoiceControlAction.SetMicSpectrum -> {
+                    setAudioRecordSpectrumEnabled(action.enabled)
+                }
+                is VoiceControlAction.SetBassBoost -> {
+                    updateBassBoost(action.strength)
+                }
+                is VoiceControlAction.AdjustBassBoost -> {
+                    updateBassBoost((_uiState.value.bassBoostStrength + action.delta).coerceIn(0, 100))
+                }
+                is VoiceControlAction.SetSpatial3D -> {
+                    updateSpatialLevel(action.level)
+                }
+                is VoiceControlAction.AdjustSpatial3D -> {
+                    updateSpatialLevel((_uiState.value.spatialLevel + action.delta).coerceIn(0, 100))
+                }
+                is VoiceControlAction.SetReverbLevel -> {
+                    updateReverbLevel(action.level)
+                }
+                is VoiceControlAction.SetReverbRoom -> {
+                    updateReverbRoom(action.room)
+                    action.level?.let { updateReverbLevel(it) }
+                }
+                is VoiceControlAction.SetPreampDb -> {
+                    updatePreampDb(action.db)
+                }
+                is VoiceControlAction.SetSoftLimiter -> {
+                    if (_uiState.value.softLimiterEnabled != action.enabled) {
+                        toggleSoftLimiter()
+                    }
+                }
+                is VoiceControlAction.SetSingleBand -> {
+                    updateBandGain(action.bandIndex, action.gainDb)
+                }
+                is VoiceControlAction.ApplyCurveOffsets -> {
+                    _uiState.update {
+                        it.copy(
+                            bandGainsDb = action.targetBands,
+                            activePresetName = "Voice: ${action.label}"
+                        )
+                    }
+                    syncDspEngine()
+                }
+                is VoiceControlAction.ResetFlat -> {
+                    resetToFlat()
+                }
+                is VoiceControlAction.ApplyPreset -> {
+                    applyPreset(action.preset)
+                }
+                is VoiceControlAction.RunAiAutoEq -> {
+                    if (action.deviceHint != null) {
+                        updateAiSelectedDevice(action.deviceHint)
+                    }
+                    if (!unlockedNow) {
+                        // Automatically unlock for Voice AI command or prompt if locked
+                        _uiState.update {
+                            it.copy(
+                                aiPromptInput = action.prompt,
+                                showAiProUnlockDialog = true,
+                                lastVoiceCommandSummary = "🔒 PRO Locked: Say 'Unlock Pro 30590' or enter Owner Key to run AI Auto-EQ"
+                            )
+                        }
+                        voiceEngine.speakFeedback("A I Auto E Q is locked in Pro Mode. Say Unlock Pro 3 0 5 9 0 to unlock.")
+                        onFeedbackMessage("PRO Mode Locked 🔒 — Say 'Unlock Pro 30590' or unlock with Owner PIN!")
+                        return
+                    } else {
+                        generateAndApplyAiAutoEq(
+                            overridePrompt = action.prompt,
+                            saveToLibrary = true
+                        ) { aiPreset ->
+                            voiceEngine.speakFeedback("Applied ${aiPreset.name}. Bass ${aiPreset.bassBoostStrength} percent, Spatial ${aiPreset.spatialLevel} percent.")
+                            onFeedbackMessage("🎙️ Voice AI Auto-EQ Applied: ${aiPreset.name}")
+                        }
+                    }
+                }
+            }
+        }
+
+        val logEntry = "🎙️ \"${parsed.spokenTranscript}\" → ${parsed.actionTitle}"
+        _uiState.update { state ->
+            val updatedHistory = (listOf(logEntry) + state.voiceCommandHistory).take(8)
+            state.copy(
+                lastVoiceCommandSummary = "${parsed.actionTitle} (\"${parsed.spokenTranscript}\")",
+                voiceCommandHistory = updatedHistory
+            )
+        }
+
+        if (parsed.actions.none { it is VoiceControlAction.RunAiAutoEq }) {
+            voiceEngine.speakFeedback(parsed.spokenFeedback)
+            onFeedbackMessage("🎙️ ${parsed.actionTitle}")
+        }
+    }
+
     fun tryUnlockAiProMode(ownerKeyInput: String): Boolean {
         val valid = presetManager.verifyOwnerProAccess(ownerKeyInput)
         if (valid) {
@@ -294,7 +486,7 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     isAiProUnlocked = true,
                     showAiProUnlockDialog = false,
-                    lastAiAnalysis = "OWNER PRO UNLOCKED 👑 — Tap any AI Scenario Chip or open AI Studio to auto-tune all 10 bands & DSP."
+                    lastAiAnalysis = "OWNER PRO UNLOCKED 👑 — Tap any AI Scenario Chip, use Voice Control 🎙️, or open AI Studio to auto-tune all 10 bands & DSP."
                 )
             }
         }
@@ -307,7 +499,7 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 isAiProUnlocked = false,
                 showAiAutoEqDialog = false,
-                lastAiAnalysis = "PRO MODE LOCKED 🔒 — Exclusive AI Auto-EQ 10-Band + DSP Mastering Engine. Tap UNLOCK PRO (Owner Only) to access."
+                lastAiAnalysis = "PRO MODE LOCKED 🔒 — Exclusive AI Auto-EQ + Voice Control Mastering Engine. Tap UNLOCK PRO (Owner Only) to access."
             )
         }
     }
@@ -506,6 +698,7 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
         runCatching {
             getApplication<Application>().unregisterReceiver(serviceReceiver)
         }
+        voiceEngine.release()
         super.onCleared()
         dspEngine.release()
     }

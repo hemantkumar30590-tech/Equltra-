@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
@@ -126,6 +127,12 @@ fun EqultraScreen(
     val dominantFreqHz by viewModel.dominantFreqHz.collectAsStateWithLifecycle()
     val peakDb by viewModel.peakDb.collectAsStateWithLifecycle()
     val hardwareStatus by viewModel.hardwareStatus.collectAsStateWithLifecycle()
+    val isVoiceListening by viewModel.isVoiceListening.collectAsStateWithLifecycle()
+    val isVoiceHandsFree by viewModel.isVoiceHandsFree.collectAsStateWithLifecycle()
+    val isVoiceTtsEnabled by viewModel.isVoiceTtsEnabled.collectAsStateWithLifecycle()
+    val voiceRmsLevel by viewModel.voiceRmsLevel.collectAsStateWithLifecycle()
+    val voiceLiveTranscript by viewModel.voiceLiveTranscript.collectAsStateWithLifecycle()
+    val voiceStatusBadge by viewModel.voiceStatusBadge.collectAsStateWithLifecycle()
 
     if (uiState.selectedTab != 0) {
         BackHandler {
@@ -215,11 +222,43 @@ fun EqultraScreen(
                     }
                 }
 
+                val voiceMicPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                    contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+                ) { granted ->
+                    if (granted) {
+                        viewModel.startVoiceListening()
+                    } else {
+                        Toast.makeText(
+                            context,
+                            "Microphone permission needed for live Voice Control (or use Instant Voice Chips)",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        viewModel.setVoiceControlDialogVisible(true)
+                    }
+                }
+
+                val triggerLiveVoiceMic: () -> Unit = {
+                    if (isVoiceListening) {
+                        viewModel.stopVoiceListening()
+                    } else {
+                        val hasMicPerm = androidx.core.content.ContextCompat.checkSelfPermission(
+                            context,
+                            android.Manifest.permission.RECORD_AUDIO
+                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        if (hasMicPerm) {
+                            viewModel.startVoiceListening()
+                        } else {
+                            voiceMicPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                        }
+                    }
+                }
+
                 StudioTopHeader(
                     isEnabled = uiState.isMasterEnabled,
                     isBackgroundServiceEnabled = uiState.isBackgroundServiceEnabled,
                     activePresetName = uiState.activePresetName,
                     isPlayingTest = isPlayingTest,
+                    isVoiceListening = isVoiceListening,
                     hardwareStatus = hardwareStatus,
                     onToggleMaster = viewModel::toggleMasterEnabled,
                     onToggleBackgroundService = { enableBg ->
@@ -238,6 +277,7 @@ fun EqultraScreen(
                         }
                     },
                     onToggleTestLoop = viewModel::toggleTestAudioLoop,
+                    onOpenVoiceControl = { viewModel.setVoiceControlDialogVisible(true) },
                     onRehookYouTube = {
                         viewModel.rehookYouTubeAudio()
                         Toast.makeText(
@@ -295,6 +335,15 @@ fun EqultraScreen(
                             }
                         },
                         onOpenAiDialog = { viewModel.setAiAutoEqDialogVisible(true) },
+                        isVoiceListening = isVoiceListening,
+                        voiceStatusBadge = voiceStatusBadge,
+                        onOpenVoiceControl = { viewModel.setVoiceControlDialogVisible(true) },
+                        onToggleLiveMic = triggerLiveVoiceMic,
+                        onExecuteVoiceCommand = { cmd ->
+                            viewModel.executeVoiceCommand(cmd) { msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            }
+                        },
                         onLockProMode = {
                             viewModel.lockAiProMode()
                             Toast.makeText(
@@ -431,6 +480,7 @@ fun EqultraScreen(
             devicePresets = viewModel.devicePresets,
             dominantFreqHz = dominantFreqHz,
             peakDb = peakDb,
+            isVoiceListening = isVoiceListening,
             onPromptChanged = viewModel::updateAiPromptInput,
             onDeviceSelected = viewModel::updateAiSelectedDevice,
             onGenerateAiPreset = { overridePrompt ->
@@ -445,6 +495,14 @@ fun EqultraScreen(
                     ).show()
                 }
             },
+            onToggleVoiceMic = {
+                viewModel.setAiAutoEqDialogVisible(false)
+                viewModel.setVoiceControlDialogVisible(true)
+            },
+            onOpenVoiceCenter = {
+                viewModel.setAiAutoEqDialogVisible(false)
+                viewModel.setVoiceControlDialogVisible(true)
+            },
             onLockProMode = {
                 viewModel.lockAiProMode()
                 Toast.makeText(
@@ -456,6 +514,59 @@ fun EqultraScreen(
             onDismiss = { viewModel.setAiAutoEqDialogVisible(false) }
         )
     }
+
+    if (uiState.showVoiceControlDialog) {
+        val context = LocalContext.current
+        val voiceDialogMicLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+            contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            if (granted) {
+                viewModel.startVoiceListening()
+            } else {
+                Toast.makeText(
+                    context,
+                    "Use Instant Voice Chips or Google Mic button below",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+
+        AiVoiceControlCenterDialog(
+            uiState = uiState,
+            isListening = isVoiceListening,
+            isHandsFree = isVoiceHandsFree,
+            isVoiceTtsEnabled = isVoiceTtsEnabled,
+            voiceRmsLevel = voiceRmsLevel,
+            liveTranscript = voiceLiveTranscript,
+            voiceStatusBadge = voiceStatusBadge,
+            onToggleListening = {
+                if (isVoiceListening) {
+                    viewModel.stopVoiceListening()
+                } else {
+                    val hasMicPerm = androidx.core.content.ContextCompat.checkSelfPermission(
+                        context,
+                        android.Manifest.permission.RECORD_AUDIO
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    if (hasMicPerm) {
+                        viewModel.startVoiceListening()
+                    } else {
+                        voiceDialogMicLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                    }
+                }
+            },
+            onToggleHandsFree = viewModel::toggleVoiceHandsFree,
+            onToggleVoiceTts = viewModel::toggleVoiceTts,
+            onExecuteVoiceCommand = { cmd ->
+                viewModel.executeVoiceCommand(cmd) { msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            },
+            onOpenAiStudio = {
+                viewModel.setAiAutoEqDialogVisible(true)
+            },
+            onDismiss = { viewModel.setVoiceControlDialogVisible(false) }
+        )
+    }
 }
 
 @Composable
@@ -464,10 +575,12 @@ private fun StudioTopHeader(
     isBackgroundServiceEnabled: Boolean,
     activePresetName: String,
     isPlayingTest: Boolean,
+    isVoiceListening: Boolean = false,
     hardwareStatus: String,
     onToggleMaster: () -> Unit,
     onToggleBackgroundService: (Boolean) -> Unit,
     onToggleTestLoop: () -> Unit,
+    onOpenVoiceControl: () -> Unit = {},
     onRehookYouTube: () -> Unit
 ) {
     Surface(
@@ -564,19 +677,19 @@ private fun StudioTopHeader(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Action Buttons: SYNC YOUTUBE + TEST AUDIO
+            // Action Buttons: SYNC YOUTUBE + VOICE AI + TEST AUDIO
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedButton(
                     onClick = onRehookYouTube,
                     modifier = Modifier
-                        .weight(1f)
+                        .weight(1.05f)
                         .height(38.dp)
                         .testTag("rehook_youtube_button"),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                     border = BorderStroke(1.dp, ElectricCyan),
                     shape = RoundedCornerShape(10.dp)
                 ) {
@@ -584,11 +697,11 @@ private fun StudioTopHeader(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = "Re-Hook YouTube Audio",
                         tint = ElectricCyan,
-                        modifier = Modifier.size(15.dp)
+                        modifier = Modifier.size(14.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "SYNC YOUTUBE",
+                        text = "SYNC YT",
                         style = MaterialTheme.typography.labelSmall,
                         color = ElectricCyan,
                         fontWeight = FontWeight.Bold
@@ -596,12 +709,38 @@ private fun StudioTopHeader(
                 }
 
                 Button(
+                    onClick = onOpenVoiceControl,
+                    modifier = Modifier
+                        .weight(1.05f)
+                        .height(38.dp)
+                        .testTag("header_voice_control_button"),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isVoiceListening) SignalEmerald else NeonMagenta,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = "Voice AI Command Center",
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (isVoiceListening) "LISTENING" else "VOICE AI",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Button(
                     onClick = onToggleTestLoop,
                     modifier = Modifier
-                        .weight(1f)
+                        .weight(1.05f)
                         .height(38.dp)
                         .testTag("test_audio_button"),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isPlayingTest) NeonMagenta else ElectricCyan,
                         contentColor = if (isPlayingTest) Color.White else AmoledBlack
@@ -611,11 +750,11 @@ private fun StudioTopHeader(
                     Icon(
                         imageVector = if (isPlayingTest) Icons.Default.Stop else Icons.Default.PlayArrow,
                         contentDescription = if (isPlayingTest) "Stop Synth Loop" else "Play Synth Loop",
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(15.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = if (isPlayingTest) "STOP TEST BEAT" else "TEST AUDIO",
+                        text = if (isPlayingTest) "STOP TEST" else "TEST AUDIO",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -685,6 +824,11 @@ private fun TenBandEqualizerTab(
     onOpenSavePreset: () -> Unit,
     onQuickAiScenario: (String) -> Unit,
     onOpenAiDialog: () -> Unit,
+    isVoiceListening: Boolean = false,
+    voiceStatusBadge: String = "VOICE AI READY",
+    onOpenVoiceControl: () -> Unit = {},
+    onToggleLiveMic: () -> Unit = {},
+    onExecuteVoiceCommand: (String) -> Unit = {},
     onLockProMode: () -> Unit = {}
 ) {
     Column(
@@ -710,11 +854,16 @@ private fun TenBandEqualizerTab(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // AI-Based Auto-EQ Preset System Card (PRO Mode)
+        // AI-Based Auto-EQ Preset System + Voice Control Card (PRO Mode)
         AiAutoEqBannerCard(
             uiState = uiState,
+            isVoiceListening = isVoiceListening,
+            voiceStatusBadge = voiceStatusBadge,
             onQuickScenarioClick = onQuickAiScenario,
             onOpenAiDialog = onOpenAiDialog,
+            onOpenVoiceControl = onOpenVoiceControl,
+            onToggleLiveMic = onToggleLiveMic,
+            onExecuteVoiceCommand = onExecuteVoiceCommand,
             onLockProMode = onLockProMode
         )
 
