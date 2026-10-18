@@ -1,13 +1,9 @@
 package com.example.dsp
 
+import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
-import android.media.audiofx.BassBoost
-import android.media.audiofx.Equalizer
-import android.media.audiofx.LoudnessEnhancer
-import android.media.audiofx.PresetReverb
-import android.media.audiofx.Virtualizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -26,19 +22,16 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.tanh
 
-class AudioDspEngine(private val scope: CoroutineScope) {
-
-    private var equalizer: Equalizer? = null
-    private var bassBoost: BassBoost? = null
-    private var virtualizer: Virtualizer? = null
-    private var presetReverb: PresetReverb? = null
-    private var loudnessEnhancer: LoudnessEnhancer? = null
+class AudioDspEngine(
+    context: Context,
+    private val scope: CoroutineScope
+) {
+    private val globalEffectManager = GlobalAudioEffectManager.getInstance(context)
+    private val audioRecordAnalyzer = AudioRecordSpectrumAnalyzer(scope)
 
     private var audioTrack: AudioTrack? = null
     private var synthJob: Job? = null
     private var spectrumJob: Job? = null
-
-    private val audioRecordAnalyzer = AudioRecordSpectrumAnalyzer(scope)
 
     @Volatile
     private var isMasterEnabled: Boolean = true
@@ -47,16 +40,16 @@ class AudioDspEngine(private val scope: CoroutineScope) {
     private var currentBandsDb: FloatArray = FloatArray(10) { 0f }
 
     @Volatile
-    private var bassStrength: Int = 0 // 0..100
+    private var bassStrength: Int = 78 // 0..100
 
     @Volatile
-    private var reverbAmount: Int = 0 // 0..100
+    private var reverbAmount: Int = 12 // 0..100
 
     @Volatile
     private var reverbRoomType: String = "Small Room"
 
     @Volatile
-    private var spatialAmount: Int = 0 // 0..100
+    private var spatialAmount: Int = 35 // 0..100
 
     @Volatile
     private var preampDb: Float = 0f
@@ -68,8 +61,9 @@ class AudioDspEngine(private val scope: CoroutineScope) {
     val isPlayingTestLoop: StateFlow<Boolean> = _isPlayingTestLoop.asStateFlow()
 
     val isAudioRecordActive: StateFlow<Boolean> = audioRecordAnalyzer.isCapturing
+    val isExternalMediaPlaying: StateFlow<Boolean> = globalEffectManager.isExternalMediaPlaying
 
-    private val _hardwareStatus = MutableStateFlow("System DSP Ready (Session 0 + Internal 64-bit DSP)")
+    private val _hardwareStatus = MutableStateFlow("Global YouTube & System DSP Active (10-Band DynamicsProcessing)")
     val hardwareStatus: StateFlow<String> = _hardwareStatus.asStateFlow()
 
     private val _spectrumBins = MutableStateFlow(List(24) { 0.08f })
@@ -90,8 +84,12 @@ class AudioDspEngine(private val scope: CoroutineScope) {
     )
 
     init {
-        bindSystemAudioSession(0)
         startSpectrumCoordinator()
+    }
+
+    fun forceRehookYouTubeAudio() {
+        globalEffectManager.forceRehookYouTubeAndSystemAudio()
+        _hardwareStatus.value = globalEffectManager.statusText.value
     }
 
     fun toggleAudioRecordSpectrum(enable: Boolean): Boolean {
@@ -104,29 +102,10 @@ class AudioDspEngine(private val scope: CoroutineScope) {
                 onStatusChanged = { _hardwareStatus.value = it }
             )
         } else {
-            audioRecordAnalyzer.stopCapture { _hardwareStatus.value = it }
+            audioRecordAnalyzer.stopCapture {
+                _hardwareStatus.value = globalEffectManager.statusText.value
+            }
             false
-        }
-    }
-
-    fun bindSystemAudioSession(sessionId: Int) {
-        runCatching {
-            releaseHardwareEffects()
-            equalizer = Equalizer(0, sessionId).apply { enabled = isMasterEnabled }
-            bassBoost = BassBoost(0, sessionId).apply { enabled = isMasterEnabled }
-            virtualizer = Virtualizer(0, sessionId).apply { enabled = isMasterEnabled }
-            presetReverb = PresetReverb(0, sessionId).apply { enabled = isMasterEnabled }
-            loudnessEnhancer = LoudnessEnhancer(sessionId).apply { enabled = isMasterEnabled }
-            syncHardwareParameters()
-            val hwBands = equalizer?.numberOfBands?.toInt() ?: 5
-            if (!audioRecordAnalyzer.isCapturing.value) {
-                _hardwareStatus.value =
-                    "Hardware AudioFX Active (${hwBands}-Band HAL + 10-Band Biquad Core | Session $sessionId)"
-            }
-        }.onFailure {
-            if (!audioRecordAnalyzer.isCapturing.value) {
-                _hardwareStatus.value = "10-Band Floating-Point DSP Core Active (Direct PCM Engine)"
-            }
         }
     }
 
@@ -153,51 +132,18 @@ class AudioDspEngine(private val scope: CoroutineScope) {
         preampDb = preamp.coerceIn(-12f, 12f)
         softLimiterEnabled = limiter
 
-        syncHardwareParameters()
-    }
-
-    private fun syncHardwareParameters() {
-        runCatching {
-            equalizer?.let { eq ->
-                eq.enabled = isMasterEnabled
-                val numBands = eq.numberOfBands.toInt()
-                val range = eq.bandLevelRange
-                val minLevel = range[0].toInt()
-                val maxLevel = range[1].toInt()
-                for (b in 0 until numBands) {
-                    val mappedIndex = ((b.toFloat() / max(1, numBands - 1)) * 9f).toInt().coerceIn(0, 9)
-                    val dbVal = if (isMasterEnabled) currentBandsDb[mappedIndex] else 0f
-                    val mB = (dbVal * 100f).toInt().coerceIn(minLevel, maxLevel).toShort()
-                    eq.setBandLevel(b.toShort(), mB)
-                }
-            }
-            bassBoost?.let { bb ->
-                bb.enabled = isMasterEnabled && bassStrength > 0
-                if (bb.strengthSupported) {
-                    bb.setStrength((if (isMasterEnabled) bassStrength * 10 else 0).coerceIn(0, 1000).toShort())
-                }
-            }
-            virtualizer?.let { virt ->
-                virt.enabled = isMasterEnabled && spatialAmount > 0
-                if (virt.strengthSupported) {
-                    virt.setStrength((if (isMasterEnabled) spatialAmount * 10 else 0).coerceIn(0, 1000).toShort())
-                }
-            }
-            presetReverb?.let { rev ->
-                rev.enabled = isMasterEnabled && reverbAmount > 0 && reverbRoomType != "None"
-                rev.preset = when (reverbRoomType) {
-                    "Small Room" -> PresetReverb.PRESET_SMALLROOM
-                    "Medium Room" -> PresetReverb.PRESET_MEDIUMROOM
-                    "Large Hall" -> PresetReverb.PRESET_LARGEHALL
-                    "Plate" -> PresetReverb.PRESET_PLATE
-                    else -> PresetReverb.PRESET_NONE
-                }
-            }
-            loudnessEnhancer?.let { le ->
-                le.enabled = isMasterEnabled
-                val gainMb = if (isMasterEnabled) (preampDb * 100f).toInt() else 0
-                le.setTargetGain(gainMb)
-            }
+        globalEffectManager.updateParameters(
+            enabled = enabled,
+            bandsDb = bandsDb,
+            bass = bassStrength,
+            reverb = reverbAmount,
+            reverbRoom = reverbRoomType,
+            spatial = spatialAmount,
+            preamp = preampDb,
+            limiter = softLimiterEnabled
+        )
+        if (!audioRecordAnalyzer.isCapturing.value) {
+            _hardwareStatus.value = globalEffectManager.statusText.value
         }
     }
 
@@ -242,9 +188,12 @@ class AudioDspEngine(private val scope: CoroutineScope) {
             }.getOrNull()
 
             audioTrack = track
+            val trackSessionId = track?.audioSessionId ?: 0
             track?.let {
                 runCatching {
-                    bindSystemAudioSession(it.audioSessionId)
+                    if (trackSessionId > 0) {
+                        globalEffectManager.onExternalAudioSessionOpened(trackSessionId, "VoidEQ_TestSynth")
+                    }
                     it.play()
                 }
             }
@@ -384,6 +333,9 @@ class AudioDspEngine(private val scope: CoroutineScope) {
                 }
             }
 
+            if (trackSessionId > 0) {
+                globalEffectManager.onExternalAudioSessionClosed(trackSessionId)
+            }
             runCatching {
                 track?.stop()
                 track?.release()
@@ -396,7 +348,8 @@ class AudioDspEngine(private val scope: CoroutineScope) {
         _isPlayingTestLoop.value = false
         synthJob?.cancel()
         synthJob = null
-        bindSystemAudioSession(0)
+        // Immediately re-assert Global Session 0 & YouTube hook
+        globalEffectManager.ensureSessionHooked(0, "GlobalOutputMix")
     }
 
     private fun startSpectrumCoordinator() {
@@ -410,8 +363,10 @@ class AudioDspEngine(private val scope: CoroutineScope) {
                     _dominantFreqHz.value = audioRecordAnalyzer.dominantFrequencyHz.value
                     _peakDb.value = audioRecordAnalyzer.capturePeakDb.value
                 } else if (!_isPlayingTestLoop.value) {
+                    _hardwareStatus.value = globalEffectManager.statusText.value
                     val active = isMasterEnabled
                     val bands = currentBandsDb
+                    val externalPlaying = globalEffectManager.isExternalMediaPlaying.value
                     var maxVal = 0f
                     var maxIdx = 2
                     val bins = List(24) { idx ->
@@ -424,7 +379,8 @@ class AudioDspEngine(private val scope: CoroutineScope) {
                         } else 0f
                         val bassBump = if (idx < 6 && active) (bassStrength / 100f) * 0.16f else 0f
                         val normalized = ((db + 15f) / 30f).coerceIn(0.08f, 0.92f)
-                        val shimmer = 0.035f * abs(sin((tick + idx * 0.45f).toDouble())).toFloat()
+                        val pulseAmp = if (externalPlaying && active) 0.14f else 0.035f
+                        val shimmer = pulseAmp * abs(sin((tick + idx * 0.55f).toDouble())).toFloat()
                         val level = (normalized * 0.65f + bassBump + shimmer).coerceIn(0.06f, 0.95f)
                         if (level >= idlePeaks[idx]) {
                             idlePeaks[idx] = level
@@ -440,31 +396,17 @@ class AudioDspEngine(private val scope: CoroutineScope) {
                     _spectrumBins.value = bins
                     _peakHoldBins.value = idlePeaks.toList()
                     _dominantFreqHz.value = binCenterFreqsHz[maxIdx]
-                    _peakDb.value = if (active) (-14.5f + preampDb * 0.5f) else -24.0f
-                    tick += 0.25f
+                    _peakDb.value = if (active) (-12.5f + preampDb * 0.5f) else -24.0f
+                    tick += if (externalPlaying) 0.45f else 0.22f
                 }
                 delay(45)
             }
         }
     }
 
-    private fun releaseHardwareEffects() {
-        runCatching { equalizer?.release() }
-        runCatching { bassBoost?.release() }
-        runCatching { virtualizer?.release() }
-        runCatching { presetReverb?.release() }
-        runCatching { loudnessEnhancer?.release() }
-        equalizer = null
-        bassBoost = null
-        virtualizer = null
-        presetReverb = null
-        loudnessEnhancer = null
-    }
-
     fun release() {
         audioRecordAnalyzer.stopCapture {}
         stopTestAudioLoop()
         spectrumJob?.cancel()
-        releaseHardwareEffects()
     }
 }

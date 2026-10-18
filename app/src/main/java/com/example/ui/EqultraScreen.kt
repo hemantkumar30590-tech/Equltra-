@@ -227,7 +227,15 @@ fun EqultraScreen(
                             viewModel.setBackgroundServiceEnabled(enableBg)
                         }
                     },
-                    onToggleTestLoop = viewModel::toggleTestAudioLoop
+                    onToggleTestLoop = viewModel::toggleTestAudioLoop,
+                    onRehookYouTube = {
+                        viewModel.rehookYouTubeAudio()
+                        Toast.makeText(
+                            context,
+                            "YouTube & Global 10-Band DynamicsProcessing Hooked!",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -309,7 +317,8 @@ private fun StudioTopHeader(
     hardwareStatus: String,
     onToggleMaster: () -> Unit,
     onToggleBackgroundService: (Boolean) -> Unit,
-    onToggleTestLoop: () -> Unit
+    onToggleTestLoop: () -> Unit,
+    onRehookYouTube: () -> Unit
 ) {
     Surface(
         color = ObsidianCard,
@@ -393,27 +402,56 @@ private fun StudioTopHeader(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Live Synth Loop Test Bar + Hardware Status
+            // Hardware / YouTube Hook Status Readout
+            Text(
+                text = hardwareStatus,
+                style = MaterialTheme.typography.labelSmall,
+                color = SignalEmerald,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Action Buttons: SYNC YOUTUBE + TEST AUDIO
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = hardwareStatus,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+                OutlinedButton(
+                    onClick = onRehookYouTube,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .testTag("rehook_youtube_button"),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    border = BorderStroke(1.dp, ElectricCyan),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Re-Hook YouTube Audio",
+                        tint = ElectricCyan,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "SYNC YOUTUBE",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ElectricCyan,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
                 Button(
                     onClick = onToggleTestLoop,
                     modifier = Modifier
-                        .height(36.dp)
+                        .weight(1f)
+                        .height(38.dp)
                         .testTag("test_audio_button"),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isPlayingTest) NeonMagenta else ElectricCyan,
                         contentColor = if (isPlayingTest) Color.White else AmoledBlack

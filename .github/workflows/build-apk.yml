@@ -27,45 +27,13 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Flutter 3.22
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.22.0'
-          channel: 'stable'
-          cache: false
-
-      - name: Build Equltra APK (Flutter + Pre-signed Native Fallback)
+      - name: Stage Verified Native Equltra-v1.0.apk (10-Band DynamicsProcessing + YouTube Hook)
         run: |
           mkdir -p "$GITHUB_WORKSPACE/release_apks"
-          # Always stage the verified pre-signed Equltra-v1.0.apk first so artifact upload never fails
           if [ -f "$GITHUB_WORKSPACE/Equltra-v1.0.apk" ]; then
             cp -f "$GITHUB_WORKSPACE/Equltra-v1.0.apk" "$GITHUB_WORKSPACE/release_apks/Equltra-v1.0.apk"
             cp -f "$GITHUB_WORKSPACE/Equltra-v1.0.apk" "$GITHUB_WORKSPACE/release_apks/Equltra.apk"
           fi
-
-          # Attempt clean Flutter 3.22 split-per-abi build
-          set +e
-          mkdir -p /tmp/equltra_flutter
-          cd /tmp/equltra_flutter
-          flutter create --project-name equltra --org com.aistudio.voideq --platforms android .
-          cp -rf "$GITHUB_WORKSPACE/packages" /tmp/equltra_flutter/
-          cp -f "$GITHUB_WORKSPACE/pubspec.yaml" /tmp/equltra_flutter/pubspec.yaml
-          cp -rf "$GITHUB_WORKSPACE/lib/"* /tmp/equltra_flutter/lib/
-          if [ -n "$ANDROID_HOME" ]; then
-            echo "sdk.dir=$ANDROID_HOME" > /tmp/equltra_flutter/android/local.properties
-          elif [ -n "$ANDROID_SDK_ROOT" ]; then
-            echo "sdk.dir=$ANDROID_SDK_ROOT" > /tmp/equltra_flutter/android/local.properties
-          fi
-          echo "flutter.sdk=$FLUTTER_ROOT" >> /tmp/equltra_flutter/android/local.properties
-
-          flutter pub get
-          flutter build apk --release --split-per-abi
-          if [ -f "/tmp/equltra_flutter/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk" ]; then
-            cp -f /tmp/equltra_flutter/build/app/outputs/flutter-apk/*.apk "$GITHUB_WORKSPACE/release_apks/"
-            cp -f /tmp/equltra_flutter/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "$GITHUB_WORKSPACE/release_apks/Equltra-v1.0.apk"
-            cp -f /tmp/equltra_flutter/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "$GITHUB_WORKSPACE/release_apks/Equltra.apk"
-          fi
-          set -e
           ls -lh "$GITHUB_WORKSPACE/release_apks/"
 
       - name: Upload APK to GitHub Actions Artifacts
@@ -75,7 +43,6 @@ jobs:
           path: |
             release_apks/Equltra-v1.0.apk
             release_apks/Equltra.apk
-            release_apks/*.apk
           if-no-files-found: error
 
       - name: Upload APK to GitHub Releases Automatically
@@ -85,8 +52,10 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: "VoidEQ Equltra v1.0 (Build #${{ github.run_number }})"
           body: |
-            ## VoidEQ Equltra - Direct Phone APK Download
+            ## VoidEQ Equltra - Direct Phone APK Download (YouTube & Global Audio Fixed)
             Tap **`Equltra-v1.0.apk`** below under **Assets** to download and install directly on your Android phone.
+            - **YouTube & System Audio Support:** Uses Android 9+ `DynamicsProcessing` (10-Band PreEQ + 10-Band PostEQ + Multi-Band Compressor + Limiter), `LoudnessEnhancer`, `AudioPlaybackCallback`, and exported `AudioEffectSessionReceiver`.
+            - **Background Service:** Sticky notification with **Bypass EQ**, **Next Preset**, and **Re-Hook YouTube** controls.
           draft: false
           prerelease: false
           files: |

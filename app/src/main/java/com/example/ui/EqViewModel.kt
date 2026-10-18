@@ -65,7 +65,7 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     init {
         val db = EqDatabase.getInstance(application)
         presetManager = PresetManager(application, db.eqPresetDao())
-        dspEngine = AudioDspEngine(viewModelScope)
+        dspEngine = AudioDspEngine(application, viewModelScope)
 
         val restored = presetManager.loadSavedActiveProfile()
         val bgEnabled = presetManager.isBackgroundServiceEnabled()
@@ -266,6 +266,13 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setAudioRecordSpectrumEnabled(enable: Boolean) {
         dspEngine.toggleAudioRecordSpectrum(enable)
+    }
+
+    fun rehookYouTubeAudio() {
+        dspEngine.forceRehookYouTubeAudio()
+        if (_uiState.value.isBackgroundServiceEnabled) {
+            EqForegroundService.startOrUpdate(getApplication())
+        }
     }
 
     private fun syncDspEngine() {

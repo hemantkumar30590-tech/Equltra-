@@ -8,11 +8,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.media.audiofx.BassBoost
-import android.media.audiofx.Equalizer
-import android.media.audiofx.LoudnessEnhancer
-import android.media.audiofx.PresetReverb
-import android.media.audiofx.Virtualizer
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -21,20 +16,14 @@ import com.example.R
 import com.example.data.EqDatabase
 import com.example.data.EqPresetEntity
 import com.example.data.PresetManager
-import kotlin.math.max
+import com.example.dsp.GlobalAudioEffectManager
 
 /**
- * Foreground Service that keeps the VoidEQ Equltra 10-band DSP & Global AudioSession (Session 0)
- * alive while the user is in other apps (Spotify, YouTube Music, games, etc.) and provides
- * quick notification shade controls.
+ * Foreground Service that keeps the VoidEQ Equltra 10-band DynamicsProcessing & Global AudioSession
+ * alive while the user watches YouTube, YouTube Music, Spotify, or uses other apps.
+ * Uses the shared [GlobalAudioEffectManager] singleton so it never conflicts with the UI engine.
  */
 class EqForegroundService : Service() {
-
-    private var equalizer: Equalizer? = null
-    private var bassBoost: BassBoost? = null
-    private var virtualizer: Virtualizer? = null
-    private var presetReverb: PresetReverb? = null
-    private var loudnessEnhancer: LoudnessEnhancer? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -46,14 +35,14 @@ class EqForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val db = EqDatabase.getInstance(applicationContext)
         val presetManager = PresetManager(applicationContext, db.eqPresetDao())
+        val globalAudioManager = GlobalAudioEffectManager.getInstance(applicationContext)
 
         when (intent?.action) {
             ACTION_STOP_SERVICE -> {
                 presetManager.setBackgroundServiceEnabled(false)
-                releaseGlobalHardwareEffects()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
-                sendBroadcast(Intent(ACTION_SERVICE_STATE_CHANGED))
+                sendBroadcast(Intent(ACTION_SERVICE_STATE_CHANGED).setPackage(packageName))
                 return START_NOT_STICKY
             }
 
@@ -70,7 +59,7 @@ class EqForegroundService : Service() {
                     spatialLevel = activeProfile.spatialLevel,
                     preampDb = activeProfile.preampDb
                 )
-                sendBroadcast(Intent(ACTION_SERVICE_STATE_CHANGED))
+                sendBroadcast(Intent(ACTION_SERVICE_STATE_CHANGED).setPackage(packageName))
             }
 
             ACTION_NEXT_PRESET -> {
@@ -88,14 +77,28 @@ class EqForegroundService : Service() {
                     spatialLevel = nextPreset.spatialLevel,
                     preampDb = nextPreset.preampDb
                 )
-                sendBroadcast(Intent(ACTION_SERVICE_STATE_CHANGED))
+                sendBroadcast(Intent(ACTION_SERVICE_STATE_CHANGED).setPackage(packageName))
+            }
+
+            ACTION_REHOOK_YOUTUBE -> {
+                globalAudioManager.forceRehookYouTubeAndSystemAudio()
             }
         }
 
         val isEnabled = presetManager.isDspEnabled()
         val activeProfile = presetManager.loadSavedActiveProfile()
 
-        applyGlobalSessionZeroEffects(isEnabled, activeProfile)
+        globalAudioManager.updateParameters(
+            enabled = isEnabled,
+            bandsDb = activeProfile.getBandGains(),
+            bass = activeProfile.bassBoostStrength,
+            reverb = activeProfile.reverbLevel,
+            reverbRoom = activeProfile.reverbRoom,
+            spatial = activeProfile.spatialLevel,
+            preamp = activeProfile.preampDb,
+            limiter = true
+        )
+
         val notification = buildNotification(isEnabled, activeProfile)
 
         runCatching {
@@ -111,64 +114,6 @@ class EqForegroundService : Service() {
         }
 
         return START_STICKY
-    }
-
-    private fun applyGlobalSessionZeroEffects(enabled: Boolean, profile: EqPresetEntity) {
-        runCatching {
-            if (equalizer == null) {
-                equalizer = Equalizer(100, 0)
-            }
-            if (bassBoost == null) {
-                bassBoost = BassBoost(100, 0)
-            }
-            if (virtualizer == null) {
-                virtualizer = Virtualizer(100, 0)
-            }
-            if (presetReverb == null) {
-                presetReverb = PresetReverb(100, 0)
-            }
-            if (loudnessEnhancer == null) {
-                loudnessEnhancer = LoudnessEnhancer(0)
-            }
-
-            val bands = profile.getBandGains()
-            equalizer?.let { eq ->
-                eq.enabled = enabled
-                val numBands = eq.numberOfBands.toInt()
-                val range = eq.bandLevelRange
-                val minLevel = range[0].toInt()
-                val maxLevel = range[1].toInt()
-                for (b in 0 until numBands) {
-                    val mappedIdx = ((b.toFloat() / max(1, numBands - 1)) * 9f).toInt().coerceIn(0, 9)
-                    val db = if (enabled) bands[mappedIdx] else 0f
-                    val mB = (db * 100f).toInt().coerceIn(minLevel, maxLevel).toShort()
-                    eq.setBandLevel(b.toShort(), mB)
-                }
-            }
-
-            bassBoost?.let { bb ->
-                bb.enabled = enabled && profile.bassBoostStrength > 0
-                if (bb.strengthSupported) {
-                    bb.setStrength(
-                        (if (enabled) profile.bassBoostStrength * 10 else 0).coerceIn(0, 1000).toShort()
-                    )
-                }
-            }
-
-            virtualizer?.let { virt ->
-                virt.enabled = enabled && profile.spatialLevel > 0
-                if (virt.strengthSupported) {
-                    virt.setStrength(
-                        (if (enabled) profile.spatialLevel * 10 else 0).coerceIn(0, 1000).toShort()
-                    )
-                }
-            }
-
-            loudnessEnhancer?.let { le ->
-                le.enabled = enabled
-                le.setTargetGain(if (enabled) (profile.preampDb * 100f).toInt() else 0)
-            }
-        }
     }
 
     private fun buildNotification(enabled: Boolean, profile: EqPresetEntity): Notification {
@@ -202,30 +147,30 @@ class EqForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val stopIntent = Intent(this, EqForegroundService::class.java).apply {
-            action = ACTION_STOP_SERVICE
+        val rehookIntent = Intent(this, EqForegroundService::class.java).apply {
+            action = ACTION_REHOOK_YOUTUBE
         }
-        val stopPending = PendingIntent.getService(
+        val rehookPending = PendingIntent.getService(
             this,
             3,
-            stopIntent,
+            rehookIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val statusTitle = if (enabled) {
-            "VoidEQ Equltra • ${profile.name} Active"
+            "VoidEQ Equltra • ${profile.name} (YouTube & System Active)"
         } else {
             "VoidEQ Equltra • DSP Bypassed"
         }
 
         val statusBody =
-            "Bass ${profile.bassBoostStrength}% • Spatial ${profile.spatialLevel}% • Reverb ${profile.reverbLevel}% (Global Audio)"
+            "10-Band DynamicsProcessing • Bass ${profile.bassBoostStrength}% • Spatial ${profile.spatialLevel}%"
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(statusTitle)
             .setContentText(statusBody)
-            .setSubText("Background Equalizer Active")
+            .setSubText("YouTube & Global Audio Equalizer")
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -243,8 +188,8 @@ class EqForegroundService : Service() {
             )
             .addAction(
                 0,
-                "Stop Bg",
-                stopPending
+                "Re-Hook YouTube",
+                rehookPending
             )
             .build()
     }
@@ -256,30 +201,12 @@ class EqForegroundService : Service() {
                 "VoidEQ Background DSP Engine",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Keeps VoidEQ Equltra equalizer active while using other apps"
+                description = "Keeps VoidEQ Equltra 10-band equalizer active on YouTube and other apps"
                 setShowBadge(false)
             }
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)
         }
-    }
-
-    private fun releaseGlobalHardwareEffects() {
-        runCatching { equalizer?.release() }
-        runCatching { bassBoost?.release() }
-        runCatching { virtualizer?.release() }
-        runCatching { presetReverb?.release() }
-        runCatching { loudnessEnhancer?.release() }
-        equalizer = null
-        bassBoost = null
-        virtualizer = null
-        presetReverb = null
-        loudnessEnhancer = null
-    }
-
-    override fun onDestroy() {
-        releaseGlobalHardwareEffects()
-        super.onDestroy()
     }
 
     companion object {
@@ -288,6 +215,7 @@ class EqForegroundService : Service() {
         const val ACTION_UPDATE_STATE = "com.example.voideq.ACTION_UPDATE_STATE"
         const val ACTION_TOGGLE_BYPASS = "com.example.voideq.ACTION_TOGGLE_BYPASS"
         const val ACTION_NEXT_PRESET = "com.example.voideq.ACTION_NEXT_PRESET"
+        const val ACTION_REHOOK_YOUTUBE = "com.example.voideq.ACTION_REHOOK_YOUTUBE"
         const val ACTION_STOP_SERVICE = "com.example.voideq.ACTION_STOP_SERVICE"
         const val ACTION_SERVICE_STATE_CHANGED = "com.example.voideq.ACTION_SERVICE_STATE_CHANGED"
 
