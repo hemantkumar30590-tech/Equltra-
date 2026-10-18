@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "VoidEQ Equltra"
+rootProject.name = "Equltra"
 
 include(":app")

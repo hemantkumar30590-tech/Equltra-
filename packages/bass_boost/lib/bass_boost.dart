@@ -4,7 +4,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 
 class BassBoost {
-  static const MethodChannel _channel = MethodChannel('com.voideq.equltra/bass_boost');
+  static const MethodChannel _channel = MethodChannel('com.hemantkumar.equltra/bass_boost');
 
   static Future<void> init(int audioSessionId) async {
     try {

@@ -19,7 +19,7 @@ import com.example.data.PresetManager
 import com.example.dsp.GlobalAudioEffectManager
 
 /**
- * Foreground Service that keeps the VoidEQ Equltra 10-band DynamicsProcessing & Global AudioSession
+ * Foreground Service that keeps the Equltra 10-band DynamicsProcessing & Global AudioSession
  * alive while the user watches YouTube, YouTube Music, Spotify, or uses other apps.
  * Uses the shared [GlobalAudioEffectManager] singleton so it never conflicts with the UI engine.
  */
@@ -158,9 +158,9 @@ class EqForegroundService : Service() {
         )
 
         val statusTitle = if (enabled) {
-            "VoidEQ Equltra • ${profile.name} (YouTube & System Active)"
+            "Equltra Background DSP ACTIVE"
         } else {
-            "VoidEQ Equltra • DSP Bypassed"
+            "Equltra • DSP Bypassed"
         }
 
         val statusBody =
@@ -198,10 +198,10 @@ class EqForegroundService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "VoidEQ Background DSP Engine",
+                "Equltra Background DSP Engine",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Keeps VoidEQ Equltra 10-band equalizer active on YouTube and other apps"
+                description = "Keeps Equltra 10-band equalizer active on YouTube and other apps"
                 setShowBadge(false)
             }
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -210,14 +210,14 @@ class EqForegroundService : Service() {
     }
 
     companion object {
-        const val CHANNEL_ID = "voideq_equltra_bg_channel"
+        const val CHANNEL_ID = "equltra_bg_channel"
         const val NOTIFICATION_ID = 4010
-        const val ACTION_UPDATE_STATE = "com.example.voideq.ACTION_UPDATE_STATE"
-        const val ACTION_TOGGLE_BYPASS = "com.example.voideq.ACTION_TOGGLE_BYPASS"
-        const val ACTION_NEXT_PRESET = "com.example.voideq.ACTION_NEXT_PRESET"
-        const val ACTION_REHOOK_YOUTUBE = "com.example.voideq.ACTION_REHOOK_YOUTUBE"
-        const val ACTION_STOP_SERVICE = "com.example.voideq.ACTION_STOP_SERVICE"
-        const val ACTION_SERVICE_STATE_CHANGED = "com.example.voideq.ACTION_SERVICE_STATE_CHANGED"
+        const val ACTION_UPDATE_STATE = "com.example.equltra.ACTION_UPDATE_STATE"
+        const val ACTION_TOGGLE_BYPASS = "com.example.equltra.ACTION_TOGGLE_BYPASS"
+        const val ACTION_NEXT_PRESET = "com.example.equltra.ACTION_NEXT_PRESET"
+        const val ACTION_REHOOK_YOUTUBE = "com.example.equltra.ACTION_REHOOK_YOUTUBE"
+        const val ACTION_STOP_SERVICE = "com.example.equltra.ACTION_STOP_SERVICE"
+        const val ACTION_SERVICE_STATE_CHANGED = "com.example.equltra.ACTION_SERVICE_STATE_CHANGED"
 
         fun startOrUpdate(context: Context) {
             val intent = Intent(context, EqForegroundService::class.java).apply {

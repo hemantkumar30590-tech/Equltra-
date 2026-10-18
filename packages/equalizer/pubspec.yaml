@@ -1,7 +1,6 @@
 name: equalizer
-description: Null-safe Dart 3 compatible Android AudioFX Equalizer bridge for VoidEQ Equltra.
+description: Null-safe Dart 3 compatible Android AudioFX Equalizer bridge for Equltra.
 version: 0.0.5
-publish_to: 'none'
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

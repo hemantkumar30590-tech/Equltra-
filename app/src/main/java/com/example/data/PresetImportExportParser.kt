@@ -8,7 +8,7 @@ import kotlin.math.ln
 
 /**
  * Parses and serializes custom EQ presets in:
- * 1. VoidEQ JSON / .equltra format: {"name": "", "bands": [10 values], "bass": 64, "spatial": 82}
+ * 1. Equltra JSON / .equltra format: {"name": "", "bands": [10 values], "bass": 64, "spatial": 82}
  * 2. AutoEQ GitHub Parametric / FixedBandEQ / GraphicEQ .txt format:
  *    - Preamp: -4.2 dB
  *    - Filter 1: ON PK Fc 31 Hz Gain 3.5 dB Q 1.41

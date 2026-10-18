@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">VoidEQ Equltra</string>
+    <string name="app_name">Equltra</string>
     <string name="header_subtitle">10-BAND HARDWARE DSP &amp; SPATIAL ENGINE</string>
     <string name="tab_equalizer">10-Band EQ</string>
     <string name="tab_dsp">Bass &amp; Spatial</string>

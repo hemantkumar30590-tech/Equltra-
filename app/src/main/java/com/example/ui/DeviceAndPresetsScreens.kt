@@ -621,7 +621,7 @@ fun PresetsAndImportExportTab(
                     }
                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
-                        putExtra(Intent.EXTRA_SUBJECT, "VoidEQ Equltra Preset - $activePresetName ($safeName.json)")
+                        putExtra(Intent.EXTRA_SUBJECT, "Equltra Preset - $activePresetName ($safeName.json)")
                         putExtra(Intent.EXTRA_TEXT, jsonContent)
                     }
                     context.startActivity(
@@ -770,7 +770,7 @@ fun PresetsAndImportExportTab(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Tap IMPORT to pick a .json, AutoEQ .txt, or .equltra file, share a file from WhatsApp/Telegram to VoidEQ Equltra, or tap AUTOEQ/JSON to import instantly.",
+                                text = "Tap IMPORT to pick a .json, AutoEQ .txt, or .equltra file, share a file from WhatsApp/Telegram to Equltra, or tap AUTOEQ/JSON to import instantly.",
                                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp),
                                 color = TextSecondary
                             )
@@ -966,8 +966,8 @@ fun PasteAutoEqOrJsonImportDialog(
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedButton(
                         onClick = {
-                            presetName = "VoidEQ JSON Custom"
-                            rawText = """{"name": "VoidEQ JSON Custom", "bands": [5.0, 4.0, 2.0, 0.0, -0.5, 1.0, 2.5, 3.5, 3.0, 2.5], "bass": 64, "spatial": 82}"""
+                            presetName = "Equltra JSON Custom"
+                            rawText = """{"name": "Equltra JSON Custom", "bands": [5.0, 4.0, 2.0, 0.0, -0.5, 1.0, 2.5, 3.5, 3.0, 2.5], "bass": 64, "spatial": 82}"""
                         },
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                         modifier = Modifier.weight(1f)

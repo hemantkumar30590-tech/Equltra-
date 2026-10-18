@@ -309,7 +309,7 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
         val snapshot = EqPresetEntity(
             name = s.activePresetName,
             category = "Custom",
-            description = "Exported from VoidEQ Equltra",
+            description = "Exported from Equltra",
             bandsCsv = s.bandGainsDb.joinToString(",") { String.format(Locale.US, "%.1f", it) },
             bassBoostStrength = s.bassBoostStrength,
             reverbLevel = s.reverbLevel,

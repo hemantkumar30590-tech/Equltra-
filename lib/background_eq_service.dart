@@ -5,11 +5,11 @@ import 'package:equalizer/equalizer.dart';
 import 'package:bass_boost/bass_boost.dart';
 import 'preset_manager.dart';
 
-/// Keeps the VoidEQ Equltra DSP engine and persistent notification running
+/// Keeps the Equltra DSP engine and persistent notification running
 /// while the user switches to other apps (Spotify, YouTube Music, games, etc.).
 class BackgroundEqService with WidgetsBindingObserver {
   static const MethodChannel _channel =
-      MethodChannel('com.voideq.equltra/background_service');
+      MethodChannel('com.hemantkumar.equltra/background_service');
 
   final PresetManager _presetManager;
   Timer? _keepAliveTimer;
@@ -49,8 +49,8 @@ class BackgroundEqService with WidgetsBindingObserver {
     try {
       await _channel.invokeMethod('startForegroundEq', {
         'title': dspEnabled
-            ? 'VoidEQ Equltra • ${profile.name} Active'
-            : 'VoidEQ Equltra • DSP Bypassed',
+            ? 'Equltra Background DSP ACTIVE'
+            : 'Equltra • DSP Bypassed',
         'subtitle':
             'Bass ${profile.bassBoost.round()}% • Spatial ${profile.spatial.round()}% • Global Session 0',
         'enabled': dspEnabled,
@@ -73,8 +73,8 @@ class BackgroundEqService with WidgetsBindingObserver {
     try {
       await _channel.invokeMethod('updateForegroundEq', {
         'title': dspEnabled
-            ? 'VoidEQ Equltra • ${profile.name} Active'
-            : 'VoidEQ Equltra • DSP Bypassed',
+            ? 'Equltra Background DSP ACTIVE'
+            : 'Equltra • DSP Bypassed',
         'subtitle':
             'Bass ${profile.bassBoost.round()}% • Spatial ${profile.spatial.round()}% • Global Session 0',
         'enabled': dspEnabled,

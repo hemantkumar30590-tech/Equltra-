@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 /// and provides real-time 24-bin spectrum + Peak-Hold visual feedback for EQ adjustments.
 class AudioRecordSpectrumController {
   static const MethodChannel _channel =
-      MethodChannel('com.voideq.equltra/audiorecord_spectrum');
+      MethodChannel('com.hemantkumar.equltra/audiorecord_spectrum');
 
   Timer? _tickTimer;
   bool isAudioRecordActive = false;

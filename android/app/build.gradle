@@ -16,7 +16,7 @@ def flutterVersionCode = localProperties.getProperty('flutter.versionCode') ?: '
 def flutterVersionName = localProperties.getProperty('flutter.versionName') ?: '1.0.0'
 
 android {
-    namespace "com.aistudio.voideq.equltra"
+    namespace "com.hemantkumar.equltra"
     compileSdk 34
 
     compileOptions {
@@ -29,11 +29,12 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.aistudio.voideq.equltra"
+        applicationId "com.hemantkumar.equltra"
         minSdk 24
         targetSdk 34
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
+        resValue "string", "app_name", "Equltra"
     }
 
     buildTypes {

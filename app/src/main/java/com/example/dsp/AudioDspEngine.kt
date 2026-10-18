@@ -192,7 +192,7 @@ class AudioDspEngine(
             track?.let {
                 runCatching {
                     if (trackSessionId > 0) {
-                        globalEffectManager.onExternalAudioSessionOpened(trackSessionId, "VoidEQ_TestSynth")
+                        globalEffectManager.onExternalAudioSessionOpened(trackSessionId, "Equltra_TestSynth")
                     }
                     it.play()
                 }

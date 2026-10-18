@@ -4,7 +4,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 
 class Equalizer {
-  static const MethodChannel _channel = MethodChannel('com.voideq.equltra/equalizer');
+  static const MethodChannel _channel = MethodChannel('com.hemantkumar.equltra/equalizer');
 
   static Future<void> init(int audioSessionId) async {
     try {

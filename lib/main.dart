@@ -19,7 +19,7 @@ void main() async {
   globalPresetManager = await PresetManager.init();
   await Equalizer.init(0);
   await BassBoost.init(0);
-  runApp(const ProviderScope(child: VoidEqUltraApp()));
+  runApp(const ProviderScope(child: EqultraApp()));
 }
 
 const List<String> kFreqLabels = [
@@ -292,13 +292,13 @@ final eqProvider = StateNotifierProvider<EqNotifier, EqState>(
   (ref) => EqNotifier(globalPresetManager),
 );
 
-class VoidEqUltraApp extends StatelessWidget {
-  const VoidEqUltraApp({super.key});
+class EqultraApp extends StatelessWidget {
+  const EqultraApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'VoidEQ Equltra',
+      title: 'Equltra',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -410,7 +410,7 @@ class EqultraHomeScreen extends ConsumerWidget {
     await file.writeAsString(jsonContent);
     await Share.shareXFiles(
       [XFile(file.path)],
-      text: 'VoidEQ Equltra 10-Band Preset: $presetName',
+      text: 'Equltra 10-Band Preset: $presetName',
     );
   }
 
@@ -422,9 +422,29 @@ class EqultraHomeScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.black,
-        title: const Text(
-          'VoidEQ Equltra • 10-Band DSP',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00F0FF)),
+        title: Row(
+          children: [
+            const Text(
+              'Equltra',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00F0FF)),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFF00F0FF),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Text(
+                'v1.0 PRO',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black,
+                ),
+              ),
+            ),
+          ],
         ),
         actions: [
           IconButton(

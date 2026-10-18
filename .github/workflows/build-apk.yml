@@ -1,4 +1,4 @@
-name: Build & Release VoidEQ Equltra APK
+name: Build & Release Equltra APK
 
 on:
   push:
@@ -50,13 +50,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
-          name: "VoidEQ Equltra v1.0 (Build #${{ github.run_number }})"
+          name: "Equltra v1.0 (Build #${{ github.run_number }})"
           body: |
-            ## VoidEQ Equltra - Direct Phone APK Download
+            ## Equltra - Direct Phone APK Download
             Tap **`Equltra-v1.0.apk`** below under **Assets** to download and install directly on your Android phone.
             - **15 Device-Specific EQ Presets (Oct 2026 Latest):** AirPods Pro 3, AirPods 4 ANC, Sony WF-1000XM5/XM6, WH-1000XM6, Galaxy Buds 3 Pro / 4 Pro, Bose QC Ultra 2nd Gen, Sennheiser Momentum 4, Pixel Buds Pro 2, JBL Tour Pro 3, OnePlus Buds Pro 3, Nothing Ear (a), Boat/Noise/Realme Buds, and Over-ear Generic.
             - **Custom Preset Import/Export:** Supports `.json`, AutoEQ `.txt`, and `.equltra` files + WhatsApp/Telegram share + "My Imports" manager.
-            - **YouTube & System Audio Support:** Android 9+ `DynamicsProcessing` (10-Band PreEQ + PostEQ + Multi-Band Compressor + Limiter) + `LoudnessEnhancer` + Background DSP notification.
+            - **YouTube & System Audio Support:** Android 9+ `DynamicsProcessing` (10-Band PreEQ + PostEQ + Multi-Band Compressor + Limiter) + `LoudnessEnhancer` + `Equltra Background DSP ACTIVE` notification.
           draft: false
           prerelease: false
           files: |

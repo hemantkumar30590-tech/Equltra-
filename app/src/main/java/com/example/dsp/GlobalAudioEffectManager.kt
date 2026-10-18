@@ -28,7 +28,7 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
- * Unified singleton manager that hooks VoidEQ Equltra into Android's AudioFlinger output pipeline
+ * Unified singleton manager that hooks Equltra into Android's AudioFlinger output pipeline
  * so YouTube, YouTube Music, Spotify, Chrome, and all third-party media apps are equalized in real time.
  *
  * Why YouTube failed previously:

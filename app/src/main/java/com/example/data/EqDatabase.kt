@@ -18,7 +18,7 @@ abstract class EqDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     EqDatabase::class.java,
-                    "voideq_equltra_db"
+                    "equltra_db"
                 ).fallbackToDestructiveMigration(true).build()
                 INSTANCE = instance
                 instance

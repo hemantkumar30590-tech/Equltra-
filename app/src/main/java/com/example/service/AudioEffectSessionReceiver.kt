@@ -10,7 +10,7 @@ import com.example.dsp.GlobalAudioEffectManager
  * Listens for system-wide [AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION] and
  * [AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION] broadcasts from YouTube,
  * YouTube Music, Spotify, Chrome, and other media apps, immediately attaching
- * VoidEQ Equltra's 10-band DynamicsProcessing & Equalizer pipeline to their audio session.
+ * Equltra's 10-band DynamicsProcessing & Equalizer pipeline to their audio session.
  */
 class AudioEffectSessionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context?, intent: Intent?) {

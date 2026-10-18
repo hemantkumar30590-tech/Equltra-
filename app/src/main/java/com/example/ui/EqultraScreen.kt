@@ -410,7 +410,7 @@ private fun StudioTopHeader(
                     ) {
                         Icon(
                             imageVector = Icons.Default.GraphicEq,
-                            contentDescription = "VoidEQ Equltra Logo",
+                            contentDescription = "Equltra Logo",
                             tint = AmoledBlack,
                             modifier = Modifier.size(26.dp)
                         )
@@ -419,7 +419,7 @@ private fun StudioTopHeader(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "VoidEQ Equltra",
+                                text = "Equltra",
                                 style = MaterialTheme.typography.titleLarge,
                                 color = TextPrimary,
                                 fontWeight = FontWeight.Bold
