@@ -63,6 +63,10 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     val importedPresets: StateFlow<List<EqPresetEntity>>
     val isPlayingTestLoop: StateFlow<Boolean>
     val isAudioRecordActive: StateFlow<Boolean>
+    val isSystemAudioActive: StateFlow<Boolean>
+    val systemVolumePercent: StateFlow<Int>
+    val waveformSamples: StateFlow<List<Float>>
+    val stereoVuLevels: StateFlow<Pair<Float, Float>>
     val spectrumBins: StateFlow<List<Float>>
     val peakHoldBins: StateFlow<List<Float>>
     val dominantFreqHz: StateFlow<Int>
@@ -123,6 +127,10 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
 
         isPlayingTestLoop = dspEngine.isPlayingTestLoop
         isAudioRecordActive = dspEngine.isAudioRecordActive
+        isSystemAudioActive = dspEngine.isSystemAudioActive
+        systemVolumePercent = dspEngine.systemVolumePercent
+        waveformSamples = dspEngine.waveformSamples
+        stereoVuLevels = dspEngine.stereoVuLevels
         spectrumBins = dspEngine.spectrumBins
         peakHoldBins = dspEngine.peakHoldBins
         dominantFreqHz = dspEngine.dominantFreqHz

@@ -91,6 +91,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.EqPresetEntity
 import com.example.ui.components.FrequencyResponseAndSpectrumCanvas
 import com.example.ui.components.StudioRotaryKnobCard
+import com.example.ui.components.SystemAudioLevelVisualizerCard
 import com.example.ui.components.VerticalEqBandFader
 import com.example.ui.theme.AmoledBlack
 import com.example.ui.theme.ElectricCyan
@@ -116,6 +117,10 @@ fun EqultraScreen(
     val importedPresets by viewModel.importedPresets.collectAsStateWithLifecycle()
     val isPlayingTest by viewModel.isPlayingTestLoop.collectAsStateWithLifecycle()
     val isAudioRecordActive by viewModel.isAudioRecordActive.collectAsStateWithLifecycle()
+    val isSystemAudioActive by viewModel.isSystemAudioActive.collectAsStateWithLifecycle()
+    val systemVolumePercent by viewModel.systemVolumePercent.collectAsStateWithLifecycle()
+    val waveformSamples by viewModel.waveformSamples.collectAsStateWithLifecycle()
+    val stereoVuLevels by viewModel.stereoVuLevels.collectAsStateWithLifecycle()
     val spectrumBins by viewModel.spectrumBins.collectAsStateWithLifecycle()
     val peakHoldBins by viewModel.peakHoldBins.collectAsStateWithLifecycle()
     val dominantFreqHz by viewModel.dominantFreqHz.collectAsStateWithLifecycle()
@@ -251,6 +256,10 @@ fun EqultraScreen(
                         presets = presets,
                         spectrumBins = spectrumBins,
                         peakHoldBins = peakHoldBins,
+                        waveformSamples = waveformSamples,
+                        stereoVuLevels = stereoVuLevels,
+                        systemVolumePercent = systemVolumePercent,
+                        isSystemAudioActive = isSystemAudioActive,
                         dominantFreqHz = dominantFreqHz,
                         isAudioRecordActive = isAudioRecordActive,
                         peakDb = peakDb,
@@ -299,6 +308,9 @@ fun EqultraScreen(
                     1 -> BassAndSpatialDspTab(
                         uiState = uiState,
                         spectrumBins = spectrumBins,
+                        waveformSamples = waveformSamples,
+                        stereoVuLevels = stereoVuLevels,
+                        systemVolumePercent = systemVolumePercent,
                         peakDb = peakDb,
                         onBassChanged = viewModel::updateBassBoost,
                         onSpatialChanged = viewModel::updateSpatialLevel,
@@ -659,6 +671,10 @@ private fun TenBandEqualizerTab(
     presets: List<EqPresetEntity>,
     spectrumBins: List<Float>,
     peakHoldBins: List<Float>,
+    waveformSamples: List<Float>,
+    stereoVuLevels: Pair<Float, Float>,
+    systemVolumePercent: Int,
+    isSystemAudioActive: Boolean,
     dominantFreqHz: Int,
     isAudioRecordActive: Boolean,
     peakDb: Float,
@@ -676,7 +692,7 @@ private fun TenBandEqualizerTab(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
     ) {
-        // Real-time AudioRecord 1024-Pt FFT Spectrum Visualizer + 10-Band Spline Response
+        // Real-time System Audio + AudioRecord 1024-Pt FFT Visualizer + 10-Band Spline Response
         FrequencyResponseAndSpectrumCanvas(
             bandGainsDb = uiState.bandGainsDb,
             spectrumBins = spectrumBins,
@@ -685,7 +701,11 @@ private fun TenBandEqualizerTab(
             isAudioRecordActive = isAudioRecordActive,
             isEnabled = uiState.isMasterEnabled,
             peakDb = peakDb,
-            onToggleAudioRecord = onToggleAudioRecord
+            onToggleAudioRecord = onToggleAudioRecord,
+            waveformSamples = waveformSamples,
+            stereoVuLevels = stereoVuLevels,
+            systemVolumePercent = systemVolumePercent,
+            isSystemAudioActive = isSystemAudioActive
         )
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -865,6 +885,9 @@ private fun DspMiniStat(label: String, value: String, color: Color) {
 private fun BassAndSpatialDspTab(
     uiState: EqUiState,
     spectrumBins: List<Float>,
+    waveformSamples: List<Float>,
+    stereoVuLevels: Pair<Float, Float>,
+    systemVolumePercent: Int,
     peakDb: Float,
     onBassChanged: (Int) -> Unit,
     onSpatialChanged: (Int) -> Unit,
@@ -878,6 +901,20 @@ private fun BassAndSpatialDspTab(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
     ) {
+        // Real-Time System Audio Level & Sub-Bass Canvas Visualizer Card
+        SystemAudioLevelVisualizerCard(
+            isEnabled = uiState.isMasterEnabled,
+            spectrumBins = spectrumBins,
+            waveformSamples = waveformSamples,
+            stereoVuLevels = stereoVuLevels,
+            systemVolumePercent = systemVolumePercent,
+            peakDb = peakDb,
+            bassBoostPercent = uiState.bassBoostStrength,
+            spatialPercent = uiState.spatialLevel
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
         // Two Rotary Studio Knobs Side-by-Side (Bass Boost + Spatial 3D)
         Row(
             modifier = Modifier.fillMaxWidth(),

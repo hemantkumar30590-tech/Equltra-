@@ -3,6 +3,7 @@ package com.example.dsp
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioTrack
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,17 +17,22 @@ import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.math.tanh
 
 class AudioDspEngine(
     context: Context,
     private val scope: CoroutineScope
 ) {
-    private val globalEffectManager = GlobalAudioEffectManager.getInstance(context)
+    private val appContext = context.applicationContext
+    private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private val globalEffectManager = GlobalAudioEffectManager.getInstance(appContext)
     private val audioRecordAnalyzer = AudioRecordSpectrumAnalyzer(scope)
 
     private var audioTrack: AudioTrack? = null
@@ -63,6 +69,18 @@ class AudioDspEngine(
     val isAudioRecordActive: StateFlow<Boolean> = audioRecordAnalyzer.isCapturing
     val isExternalMediaPlaying: StateFlow<Boolean> = globalEffectManager.isExternalMediaPlaying
 
+    private val _isSystemAudioActive = MutableStateFlow(false)
+    val isSystemAudioActive: StateFlow<Boolean> = _isSystemAudioActive.asStateFlow()
+
+    private val _systemVolumePercent = MutableStateFlow(70)
+    val systemVolumePercent: StateFlow<Int> = _systemVolumePercent.asStateFlow()
+
+    private val _waveformSamples = MutableStateFlow(List(64) { 0f })
+    val waveformSamples: StateFlow<List<Float>> = _waveformSamples.asStateFlow()
+
+    private val _stereoVuLevels = MutableStateFlow(0.08f to 0.08f)
+    val stereoVuLevels: StateFlow<Pair<Float, Float>> = _stereoVuLevels.asStateFlow()
+
     private val _hardwareStatus = MutableStateFlow("Global YouTube & System DSP Active (10-Band DynamicsProcessing)")
     val hardwareStatus: StateFlow<String> = _hardwareStatus.asStateFlow()
 
@@ -87,6 +105,14 @@ class AudioDspEngine(
         startSpectrumCoordinator()
     }
 
+    private fun readSystemMusicVolumeFraction(): Float {
+        return runCatching {
+            val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+            val curVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).coerceIn(0, maxVol)
+            curVol.toFloat() / maxVol.toFloat()
+        }.getOrDefault(0.75f)
+    }
+
     fun forceRehookYouTubeAudio() {
         globalEffectManager.forceRehookYouTubeAndSystemAudio()
         _hardwareStatus.value = globalEffectManager.statusText.value
@@ -98,6 +124,7 @@ class AudioDspEngine(
                 isMasterEnabledProvider = { isMasterEnabled },
                 bandsDbProvider = { currentBandsDb },
                 bassStrengthProvider = { bassStrength },
+                spatialStrengthProvider = { spatialAmount },
                 preampDbProvider = { preampDb },
                 onStatusChanged = { _hardwareStatus.value = it }
             )
@@ -209,6 +236,7 @@ class AudioDspEngine(
             var lpSub = 0f
             var lpMid = 0f
             val peakHolds = FloatArray(24) { 0.12f }
+            val waveSnapshot = FloatArray(64)
 
             while (isActive && _isPlayingTestLoop.value) {
                 val active = isMasterEnabled
@@ -229,6 +257,9 @@ class AudioDspEngine(
                 } else 1f
 
                 var maxPeak = 0f
+                var sumL = 0.0
+                var sumR = 0.0
+                val waveStride = chunkFrames / 64
 
                 for (i in 0 until chunkFrames) {
                     val t = sampleCursor.toDouble() / sampleRate.toDouble()
@@ -284,6 +315,13 @@ class AudioDspEngine(
                     }
 
                     maxPeak = max(maxPeak, max(abs(outL), abs(outR)))
+                    sumL += (outL * outL).toDouble()
+                    sumR += (outR * outR).toDouble()
+
+                    if (i % waveStride == 0) {
+                        val wIdx = (i / waveStride).coerceIn(0, 63)
+                        waveSnapshot[wIdx] = if (active) ((outL + outR) * 0.65f).coerceIn(-1f, 1f) else 0f
+                    }
 
                     pcmBuffer[i * 2] = (outL * 32760f).toInt().coerceIn(-32768, 32767).toShort()
                     pcmBuffer[i * 2 + 1] = (outR * 32760f).toInt().coerceIn(-32768, 32767).toShort()
@@ -295,6 +333,10 @@ class AudioDspEngine(
                 }
 
                 if (!audioRecordAnalyzer.isCapturing.value) {
+                    val sysVol = readSystemMusicVolumeFraction()
+                    _systemVolumePercent.value = (sysVol * 100f).roundToInt()
+                    _isSystemAudioActive.value = true
+
                     val beatPulse = ((sampleCursor % 11025).toFloat() / 11025f)
                     var domBin = 0
                     var domVal = 0f
@@ -308,8 +350,11 @@ class AudioDspEngine(
                         } else 0f
                         val bassBump = if (idx < 6 && active) (bassStrength / 100f) * 0.28f else 0f
                         val normalizedEq = ((db + 15f) / 30f).coerceIn(0.08f, 1f)
-                        val groove = 0.18f * abs(sin((idx * 0.7f + beatPulse * 6.28f).toDouble())).toFloat()
-                        val level = (normalizedEq * 0.72f + bassBump + groove).coerceIn(0.06f, 0.98f)
+                        val groove = 0.22f * abs(sin((idx * 0.7f + beatPulse * 6.28f).toDouble())).toFloat()
+                        val volScale = (0.35f + sysVol * 0.65f)
+                        val level = if (active) {
+                            ((normalizedEq * 0.72f + bassBump + groove) * volScale).coerceIn(0.06f, 0.98f)
+                        } else 0.04f
                         if (level >= peakHolds[idx]) {
                             peakHolds[idx] = level
                         } else {
@@ -323,8 +368,17 @@ class AudioDspEngine(
                     }
                     _spectrumBins.value = bins
                     _peakHoldBins.value = peakHolds.toList()
+                    _waveformSamples.value = waveSnapshot.toList()
+                    val rmsL = sqrt(sumL / chunkFrames).toFloat()
+                    val rmsR = sqrt(sumR / chunkFrames).toFloat()
+                    _stereoVuLevels.value = if (active) {
+                        (rmsL * 1.45f * (0.4f + sysVol * 0.6f)).coerceIn(0.08f, 0.99f) to
+                            (rmsR * 1.45f * (0.4f + sysVol * 0.6f)).coerceIn(0.08f, 0.99f)
+                    } else {
+                        0.04f to 0.04f
+                    }
                     _dominantFreqHz.value = binCenterFreqsHz[domBin]
-                    val dbReadout = (20f * kotlin.math.log10(maxPeak.coerceAtLeast(0.001f))).coerceIn(-48f, 3.0f)
+                    val dbReadout = (20f * log10((maxPeak * (0.4f + sysVol * 0.6f)).coerceAtLeast(0.001f))).coerceIn(-48f, 3.0f)
                     _peakDb.value = dbReadout
                 }
 
@@ -348,7 +402,6 @@ class AudioDspEngine(
         _isPlayingTestLoop.value = false
         synthJob?.cancel()
         synthJob = null
-        // Immediately re-assert Global Session 0 & YouTube hook
         globalEffectManager.ensureSessionHooked(0, "GlobalOutputMix")
     }
 
@@ -357,49 +410,98 @@ class AudioDspEngine(
             var tick = 0f
             val idlePeaks = FloatArray(24) { 0.12f }
             while (isActive) {
+                val sysVol = readSystemMusicVolumeFraction()
+                _systemVolumePercent.value = (sysVol * 100f).roundToInt()
+                val musicActive = runCatching { audioManager.isMusicActive }.getOrDefault(false) ||
+                    globalEffectManager.isExternalMediaPlaying.value
+
                 if (audioRecordAnalyzer.isCapturing.value) {
+                    _isSystemAudioActive.value = true
                     _spectrumBins.value = audioRecordAnalyzer.fftBins.value
                     _peakHoldBins.value = audioRecordAnalyzer.peakHoldBins.value
+                    _waveformSamples.value = audioRecordAnalyzer.waveformSamples.value
+                    _stereoVuLevels.value = audioRecordAnalyzer.stereoVuLevels.value
                     _dominantFreqHz.value = audioRecordAnalyzer.dominantFrequencyHz.value
                     _peakDb.value = audioRecordAnalyzer.capturePeakDb.value
                 } else if (!_isPlayingTestLoop.value) {
                     _hardwareStatus.value = globalEffectManager.statusText.value
                     val active = isMasterEnabled
                     val bands = currentBandsDb
-                    val externalPlaying = globalEffectManager.isExternalMediaPlaying.value
+                    _isSystemAudioActive.value = musicActive && active
+
                     var maxVal = 0f
                     var maxIdx = 2
+                    val volFactor = (0.30f + sysVol * 0.70f)
                     val bins = List(24) { idx ->
-                        val bandPos = (idx / 23f) * 9f
-                        val lowIdx = bandPos.toInt().coerceIn(0, 9)
-                        val highIdx = min(9, lowIdx + 1)
-                        val frac = bandPos - lowIdx
-                        val db = if (active) {
-                            bands[lowIdx] * (1f - frac) + bands[highIdx] * frac
-                        } else 0f
-                        val bassBump = if (idx < 6 && active) (bassStrength / 100f) * 0.16f else 0f
-                        val normalized = ((db + 15f) / 30f).coerceIn(0.08f, 0.92f)
-                        val pulseAmp = if (externalPlaying && active) 0.14f else 0.035f
-                        val shimmer = pulseAmp * abs(sin((tick + idx * 0.55f).toDouble())).toFloat()
-                        val level = (normalized * 0.65f + bassBump + shimmer).coerceIn(0.06f, 0.95f)
-                        if (level >= idlePeaks[idx]) {
-                            idlePeaks[idx] = level
+                        if (!active) {
+                            idlePeaks[idx] = (idlePeaks[idx] - 0.02f).coerceAtLeast(0.05f)
+                            0.04f
                         } else {
-                            idlePeaks[idx] = (idlePeaks[idx] - 0.012f).coerceAtLeast(level)
+                            val bandPos = (idx / 23f) * 9f
+                            val lowIdx = bandPos.toInt().coerceIn(0, 9)
+                            val highIdx = min(9, lowIdx + 1)
+                            val frac = bandPos - lowIdx
+                            val db = bands[lowIdx] * (1f - frac) + bands[highIdx] * frac
+                            val bassBump = if (idx < 6) (bassStrength / 100f) * 0.22f * (1f - idx / 6f) else 0f
+                            val spatialAir = if (idx >= 16) (spatialAmount / 100f) * 0.14f else 0f
+                            val normalized = ((db + 15f) / 30f).coerceIn(0.08f, 0.94f)
+                            val pulseAmp = if (musicActive) 0.22f * volFactor else 0.08f * volFactor
+                            val harmonic = pulseAmp * (
+                                0.65f * abs(sin((tick + idx * 0.52f).toDouble())) +
+                                    0.35f * abs(cos((tick * 1.4f - idx * 0.31f).toDouble()))
+                                ).toFloat()
+                            val level = ((normalized * 0.62f + bassBump + spatialAir) * volFactor + harmonic)
+                                .coerceIn(0.06f, 0.96f)
+                            if (level >= idlePeaks[idx]) {
+                                idlePeaks[idx] = level
+                            } else {
+                                idlePeaks[idx] = (idlePeaks[idx] - 0.014f).coerceAtLeast(level)
+                            }
+                            if (level > maxVal) {
+                                maxVal = level
+                                maxIdx = idx
+                            }
+                            level
                         }
-                        if (level > maxVal) {
-                            maxVal = level
-                            maxIdx = idx
-                        }
-                        level
                     }
                     _spectrumBins.value = bins
                     _peakHoldBins.value = idlePeaks.toList()
-                    _dominantFreqHz.value = binCenterFreqsHz[maxIdx]
-                    _peakDb.value = if (active) (-12.5f + preampDb * 0.5f) else -24.0f
-                    tick += if (externalPlaying) 0.45f else 0.22f
+
+                    // Synthesize real-time 64-point oscilloscope waveform responding to system audio levels & EQ
+                    val subDrive = if (active) (bassStrength / 100f) * 0.42f + ((bands[0] + bands[1]) / 30f) * 0.25f else 0f
+                    val midDrive = if (active) ((bands[4] + bands[5]) / 30f) * 0.25f + 0.25f else 0f
+                    val highDrive = if (active) ((bands[8] + bands[9]) / 30f) * 0.18f + (spatialAmount / 100f) * 0.15f else 0f
+                    val ampScale = if (!active) 0f else if (musicActive) (0.45f + sysVol * 0.55f) else (0.22f + sysVol * 0.38f)
+
+                    val wave = List(64) { w ->
+                        if (!active) {
+                            0f
+                        } else {
+                            val phase = (w / 63f) * 2.0 * PI
+                            val env = sin(phase * 0.5).toFloat() // window envelope so ends taper cleanly
+                            val lowWave = sin(phase * 2.0 + tick * 1.3) * (0.42 + subDrive)
+                            val midWave = sin(phase * 5.0 - tick * 2.1) * (0.28 + midDrive)
+                            val hiWave = cos(phase * 11.0 + tick * 3.4) * (0.16 + highDrive)
+                            ((lowWave + midWave + hiWave).toFloat() * env * ampScale).coerceIn(-0.98f, 0.98f)
+                        }
+                    }
+                    _waveformSamples.value = wave
+
+                    // Stereo L/R VU levels responding to system volume, spatial width, and EQ energy
+                    val vuBase = if (!active) 0.04f else (maxVal * (0.55f + sysVol * 0.45f)).coerceIn(0.08f, 0.96f)
+                    val stereoDiff = if (active) (spatialAmount / 100f) * 0.11f * sin(tick.toDouble()).toFloat() else 0f
+                    _stereoVuLevels.value = if (active) {
+                        (vuBase + stereoDiff).coerceIn(0.06f, 0.98f) to (vuBase - stereoDiff).coerceIn(0.06f, 0.98f)
+                    } else {
+                        0.04f to 0.04f
+                    }
+
+                    _dominantFreqHz.value = if (active) binCenterFreqsHz[maxIdx] else 0
+                    val activeDb = -28f + (sysVol * 22f) + (preampDb * 0.6f) + (if (musicActive) 3.5f else 0f)
+                    _peakDb.value = if (active) activeDb.coerceIn(-48f, 3.0f) else -48.0f
+                    tick += if (musicActive) 0.48f else 0.26f
                 }
-                delay(45)
+                delay(42)
             }
         }
     }
