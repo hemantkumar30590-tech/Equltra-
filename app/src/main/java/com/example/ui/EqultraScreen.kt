@@ -272,7 +272,20 @@ fun EqultraScreen(
                         onBandGainChanged = viewModel::updateBandGain,
                         onSelectPreset = viewModel::applyPreset,
                         onResetFlat = viewModel::resetToFlat,
-                        onOpenSavePreset = { viewModel.setSavePresetDialogVisible(true) }
+                        onOpenSavePreset = { viewModel.setSavePresetDialogVisible(true) },
+                        onQuickAiScenario = { scenarioPrompt ->
+                            viewModel.generateAndApplyAiAutoEq(
+                                overridePrompt = scenarioPrompt,
+                                saveToLibrary = true
+                            ) { aiPreset ->
+                                Toast.makeText(
+                                    context,
+                                    "AI Auto-EQ Applied: ${aiPreset.name}",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                        onOpenAiDialog = { viewModel.setAiAutoEqDialogVisible(true) }
                     )
 
                     1 -> BassAndSpatialDspTab(
@@ -312,6 +325,7 @@ fun EqultraScreen(
                         onDeleteCustomPreset = viewModel::deleteCustomPreset,
                         onOpenSaveDialog = { viewModel.setSavePresetDialogVisible(true) },
                         onOpenPasteImportDialog = { viewModel.setPasteImportDialogVisible(true) },
+                        onOpenAiAutoEqDialog = { viewModel.setAiAutoEqDialogVisible(true) },
                         onImportFromContent = { content, fileName ->
                             viewModel.importPresetFromContent(content, fileName) { saved ->
                                 if (saved != null) {
@@ -368,6 +382,31 @@ fun EqultraScreen(
                     }
                 }
             }
+        )
+    }
+
+    if (uiState.showAiAutoEqDialog) {
+        val context = LocalContext.current
+        AiAutoEqDialog(
+            uiState = uiState,
+            devicePresets = viewModel.devicePresets,
+            dominantFreqHz = dominantFreqHz,
+            peakDb = peakDb,
+            onPromptChanged = viewModel::updateAiPromptInput,
+            onDeviceSelected = viewModel::updateAiSelectedDevice,
+            onGenerateAiPreset = { overridePrompt ->
+                viewModel.generateAndApplyAiAutoEq(
+                    overridePrompt = overridePrompt,
+                    saveToLibrary = true
+                ) { aiPreset ->
+                    Toast.makeText(
+                        context,
+                        "AI Auto-EQ Applied & Saved: ${aiPreset.name}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            },
+            onDismiss = { viewModel.setAiAutoEqDialogVisible(false) }
         )
     }
 }
@@ -592,7 +631,9 @@ private fun TenBandEqualizerTab(
     onBandGainChanged: (Int, Float) -> Unit,
     onSelectPreset: (EqPresetEntity) -> Unit,
     onResetFlat: () -> Unit,
-    onOpenSavePreset: () -> Unit
+    onOpenSavePreset: () -> Unit,
+    onQuickAiScenario: (String) -> Unit,
+    onOpenAiDialog: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -611,7 +652,16 @@ private fun TenBandEqualizerTab(
             onToggleAudioRecord = onToggleAudioRecord
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // AI-Based Auto-EQ Preset System Card
+        AiAutoEqBannerCard(
+            uiState = uiState,
+            onQuickScenarioClick = onQuickAiScenario,
+            onOpenAiDialog = onOpenAiDialog
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
 
         // Quick Preset Selector Strip (All 9 built-in + custom presets)
         LazyRow(

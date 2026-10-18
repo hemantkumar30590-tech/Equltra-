@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:equalizer/equalizer.dart';
 import 'package:bass_boost/bass_boost.dart';
 import 'preset_manager.dart';
+import 'ai_auto_eq_engine.dart';
 import 'background_eq_service.dart';
 import 'spectrum_analyzer.dart';
 import 'screens/get_apk_screen.dart';
@@ -42,6 +43,11 @@ class EqState {
   final double preampDb;
   final List<SoundProfile> allPresets;
   final List<SoundProfile> importedPresets;
+  final String aiPromptInput;
+  final String aiSelectedDevice;
+  final String lastAiAnalysis;
+  final String lastAiEngineBadge;
+  final bool isGeneratingAiEq;
 
   const EqState({
     required this.enabled,
@@ -57,6 +63,12 @@ class EqState {
     required this.preampDb,
     required this.allPresets,
     required this.importedPresets,
+    this.aiPromptInput = '',
+    this.aiSelectedDevice = 'Apple AirPods Pro 3',
+    this.lastAiAnalysis =
+        'Tap any AI Scenario Chip or enter your song/genre/earbuds to auto-tune all 10 bands, Bass Boost, Spatial 3D & Preamp.',
+    this.lastAiEngineBadge = 'Gemini 3.5 Flash AI',
+    this.isGeneratingAiEq = false,
   });
 
   EqState copyWith({
@@ -73,6 +85,11 @@ class EqState {
     double? preampDb,
     List<SoundProfile>? allPresets,
     List<SoundProfile>? importedPresets,
+    String? aiPromptInput,
+    String? aiSelectedDevice,
+    String? lastAiAnalysis,
+    String? lastAiEngineBadge,
+    bool? isGeneratingAiEq,
   }) {
     return EqState(
       enabled: enabled ?? this.enabled,
@@ -89,6 +106,11 @@ class EqState {
       preampDb: preampDb ?? this.preampDb,
       allPresets: allPresets ?? this.allPresets,
       importedPresets: importedPresets ?? this.importedPresets,
+      aiPromptInput: aiPromptInput ?? this.aiPromptInput,
+      aiSelectedDevice: aiSelectedDevice ?? this.aiSelectedDevice,
+      lastAiAnalysis: lastAiAnalysis ?? this.lastAiAnalysis,
+      lastAiEngineBadge: lastAiEngineBadge ?? this.lastAiEngineBadge,
+      isGeneratingAiEq: isGeneratingAiEq ?? this.isGeneratingAiEq,
     );
   }
 }
@@ -223,6 +245,54 @@ class EqNotifier extends StateNotifier<EqState> {
       allPresets: _presetManager.getAllPresets(),
       importedPresets: _presetManager.loadImportedPresets(),
     );
+  }
+
+  void setAiSelectedDevice(String device) {
+    state = state.copyWith(aiSelectedDevice: device);
+  }
+
+  void setAiPromptInput(String prompt) {
+    state = state.copyWith(aiPromptInput: prompt);
+  }
+
+  Future<SoundProfile> generateAndApplyAiAutoEq({String? overridePrompt}) async {
+    final promptToUse = (overridePrompt ?? state.aiPromptInput).trim().isEmpty
+        ? 'Live Spectrum Smart Calibration'
+        : (overridePrompt ?? state.aiPromptInput).trim();
+    state = state.copyWith(isGeneratingAiEq: true, aiPromptInput: promptToUse);
+
+    final result = await AiAutoEqEngine.generateAiPreset(
+      prompt: promptToUse,
+      targetDeviceName: state.aiSelectedDevice,
+    );
+
+    final saved = await _presetManager.saveCustomPreset(
+      name: result.profile.name,
+      description: result.profile.description,
+      bands: result.profile.bands,
+      bassBoost: result.profile.bassBoost,
+      reverb: result.profile.reverb,
+      reverbRoom: result.profile.reverbRoom,
+      spatial: result.profile.spatial,
+      preampDb: result.profile.preampDb,
+    );
+
+    state = state.copyWith(
+      isGeneratingAiEq: false,
+      activePreset: saved.name,
+      bands: List<double>.from(saved.bands),
+      bassBoost: saved.bassBoost,
+      reverb: saved.reverb,
+      reverbRoom: saved.reverbRoom,
+      spatial: saved.spatial,
+      preampDb: saved.preampDb,
+      lastAiAnalysis: result.acousticAnalysis,
+      lastAiEngineBadge: result.sourceEngine,
+      allPresets: _presetManager.getAllPresets(),
+    );
+    _persistCurrentState();
+    _syncDsp();
+    return saved;
   }
 
   void setBassBoost(double value) {
@@ -582,6 +652,67 @@ class EqultraHomeScreen extends ConsumerWidget {
             peakDbFs: -6.5 + (eq.preampDb * 0.4),
             dominantFreqHz: 125,
             onToggleAudioRecord: () => notifier.toggleEnabled(!eq.enabled),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0A0E17),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFF00F0FF)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.auto_awesome, color: Color(0xFF00F0FF), size: 18),
+                        const SizedBox(width: 6),
+                        const Text(
+                          'AI AUTO-EQ PRESET SYSTEM',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      eq.lastAiEngineBadge,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Color(0xFFFF2A85),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: AiAutoEqEngine.quickScenarios.map((entry) {
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ActionChip(
+                          label: Text('✨ ${entry.key}', style: const TextStyle(fontSize: 11)),
+                          onPressed: () {
+                            notifier.generateAndApplyAiAutoEq(
+                              overridePrompt: entry.value,
+                            );
+                          },
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  eq.lastAiAnalysis,
+                  style: const TextStyle(fontSize: 11, color: Colors.white70),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
           SizedBox(

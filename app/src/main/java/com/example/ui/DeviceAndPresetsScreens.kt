@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentPaste
@@ -513,6 +514,7 @@ fun PresetsAndImportExportTab(
     onDeleteCustomPreset: (EqPresetEntity) -> Unit,
     onOpenSaveDialog: () -> Unit,
     onOpenPasteImportDialog: () -> Unit,
+    onOpenAiAutoEqDialog: () -> Unit = {},
     onImportFromContent: (String, String) -> Unit,
     onBuildExportJson: () -> String
 ) {
@@ -567,9 +569,33 @@ fun PresetsAndImportExportTab(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Supports .json, AutoEQ .txt & .equltra + WhatsApp/Telegram Share",
+                    text = "Supports AI Auto-EQ, .json, AutoEQ .txt & .equltra + Share",
                     style = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp),
                     color = TextSecondary
+                )
+            }
+            Button(
+                onClick = onOpenAiAutoEqDialog,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = NeonMagenta,
+                    contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                modifier = Modifier
+                    .height(34.dp)
+                    .testTag("presets_tab_ai_autoeq_btn")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = "AI Auto-EQ",
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "AI AUTO-EQ",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }

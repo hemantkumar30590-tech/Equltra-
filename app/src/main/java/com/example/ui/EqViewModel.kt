@@ -12,6 +12,7 @@ import com.example.data.EqDatabase
 import com.example.data.EqPresetEntity
 import com.example.data.PresetImportExportParser
 import com.example.data.PresetManager
+import com.example.dsp.AiAutoEqEngine
 import com.example.dsp.AudioDspEngine
 import com.example.service.EqForegroundService
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,7 +39,13 @@ data class EqUiState(
     val softLimiterEnabled: Boolean = true,
     val isGlobalSystemMode: Boolean = true,
     val showSavePresetDialog: Boolean = false,
-    val showPasteImportDialog: Boolean = false
+    val showPasteImportDialog: Boolean = false,
+    val showAiAutoEqDialog: Boolean = false,
+    val isGeneratingAiEq: Boolean = false,
+    val aiPromptInput: String = "",
+    val aiSelectedDevice: String = "Apple AirPods Pro 3",
+    val lastAiAnalysis: String = "Tap any AI Scenario Chip or enter your song/genre/earbuds to auto-tune all 10 bands, Bass Boost, Spatial 3D & Preamp.",
+    val lastAiEngineBadge: String = "Gemini 3.5 Flash AI"
 )
 
 class EqViewModel(application: Application) : AndroidViewModel(application) {
@@ -248,6 +255,77 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setPasteImportDialogVisible(visible: Boolean) {
         _uiState.update { it.copy(showPasteImportDialog = visible) }
+    }
+
+    fun setAiAutoEqDialogVisible(visible: Boolean) {
+        _uiState.update { it.copy(showAiAutoEqDialog = visible) }
+    }
+
+    fun updateAiPromptInput(prompt: String) {
+        _uiState.update { it.copy(aiPromptInput = prompt) }
+    }
+
+    fun updateAiSelectedDevice(device: String) {
+        _uiState.update { it.copy(aiSelectedDevice = device) }
+    }
+
+    fun generateAndApplyAiAutoEq(
+        overridePrompt: String? = null,
+        saveToLibrary: Boolean = true,
+        onComplete: (EqPresetEntity) -> Unit = {}
+    ) {
+        val state = _uiState.value
+        val promptToUse = (overridePrompt ?: state.aiPromptInput).trim()
+            .ifEmpty { "Live Spectrum Smart Calibration" }
+
+        _uiState.update {
+            it.copy(
+                isGeneratingAiEq = true,
+                aiPromptInput = promptToUse
+            )
+        }
+
+        viewModelScope.launch {
+            val result = AiAutoEqEngine.generateAiPreset(
+                userPrompt = promptToUse,
+                targetDeviceName = state.aiSelectedDevice,
+                spectrumBins = spectrumBins.value,
+                dominantFreqHz = dominantFreqHz.value,
+                peakDb = peakDb.value
+            )
+
+            val finalPreset = if (saveToLibrary) {
+                presetManager.saveCustomSoundProfile(
+                    name = result.preset.name,
+                    description = result.preset.description,
+                    bandGainsDb = result.preset.getBandGains(),
+                    bassBoostStrength = result.preset.bassBoostStrength,
+                    reverbLevel = result.preset.reverbLevel,
+                    reverbRoom = result.preset.reverbRoom,
+                    spatialLevel = result.preset.spatialLevel,
+                    preampDb = result.preset.preampDb
+                )
+            } else {
+                result.preset
+            }
+
+            _uiState.update {
+                it.copy(
+                    isGeneratingAiEq = false,
+                    activePresetName = finalPreset.name,
+                    bandGainsDb = finalPreset.getBandGains(),
+                    bassBoostStrength = finalPreset.bassBoostStrength,
+                    reverbLevel = finalPreset.reverbLevel,
+                    reverbRoom = finalPreset.reverbRoom,
+                    spatialLevel = finalPreset.spatialLevel,
+                    preampDb = finalPreset.preampDb,
+                    lastAiAnalysis = result.acousticAnalysis,
+                    lastAiEngineBadge = result.sourceEngine
+                )
+            }
+            syncDspEngine()
+            onComplete(finalPreset)
+        }
     }
 
     fun saveCurrentAsCustomPreset(name: String, description: String) {
