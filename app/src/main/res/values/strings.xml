@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">VoidEQ Equltra</string>
+    <string name="header_subtitle">10-BAND HARDWARE DSP &amp; SPATIAL ENGINE</string>
+    <string name="tab_equalizer">10-Band EQ</string>
+    <string name="tab_dsp">Bass &amp; Spatial</string>
+    <string name="tab_presets">Presets</string>
+    <string name="tab_apk_guide">Get APK</string>
+    <string name="btn_save_preset">Save Custom Preset</string>
+    <string name="btn_reset_flat">Reset Flat</string>
+    <string name="btn_test_audio_play">Play Synth Test Loop</string>
+    <string name="btn_test_audio_stop">Stop Test Loop</string>
+    <string name="label_bass_boost">Bass Boost</string>
+    <string name="label_spatial_3d">Spatial 3D</string>
+    <string name="label_reverb">Studio Reverb</string>
+    <string name="label_preamp">Preamp &amp; Limiter</string>
+</resources>

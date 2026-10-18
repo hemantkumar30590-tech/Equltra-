@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer subtle sonic ring inside 66dp safe zone (21..87) -->
+    <path
+        android:fillColor="#1A00F0FF"
+        android:pathData="M54,23C36.88,23 23,36.88 23,54C23,71.12 36.88,85 54,85C71.12,85 85,71.12 85,54C85,36.88 71.12,23 54,23ZM54,80C39.64,80 28,68.36 28,54C28,39.64 39.64,28 54,28C68.36,28 80,39.64 80,54C80,68.36 68.36,80 54,80Z" />
+
+    <!-- Left Fader Track & Cap -->
+    <path
+        android:fillColor="#00F0FF"
+        android:pathData="M36,33h4v42h-4z" />
+    <path
+        android:fillColor="#FF2A85"
+        android:pathData="M32,42h12v7h-12z" />
+
+    <!-- Center Fader Track & Cap -->
+    <path
+        android:fillColor="#00F0FF"
+        android:pathData="M52,29h4v50h-4z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,57h12v7h-12z" />
+
+    <!-- Right Fader Track & Cap -->
+    <path
+        android:fillColor="#00F0FF"
+        android:pathData="M68,33h4v42h-4z" />
+    <path
+        android:fillColor="#FF2A85"
+        android:pathData="M64,37h12v7h-12z" />
+</vector>

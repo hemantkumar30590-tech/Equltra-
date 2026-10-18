@@ -1,0 +1,11 @@
+name: bass_boost
+description: Null-safe Dart 3 compatible Android BassBoost & Spatial DSP bridge for VoidEQ Equltra.
+version: 1.0.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter

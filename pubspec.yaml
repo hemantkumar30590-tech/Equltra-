@@ -1,0 +1,30 @@
+name: equltra
+description: VoidEQ Equltra - AMOLED 10-Band Equalizer, Bass Boost, Reverb & Spatial Audio App.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  equalizer: ^0.0.5
+  bass_boost: ^1.0.0
+  just_audio: ^0.9.38
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  flutter_riverpod: ^2.5.1
+
+dependency_overrides:
+  equalizer:
+    path: ./packages/equalizer
+  bass_boost:
+    path: ./packages/bass_boost
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

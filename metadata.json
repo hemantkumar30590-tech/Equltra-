@@ -1,0 +1,6 @@
+{
+  "name": "VoidEQ Equltra",
+  "description": "AMOLED 10-band studio audio equalizer, bass booster, reverb, and spatial DSP engine with presets and GitHub APK workflow.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
