@@ -1,5 +1,8 @@
 Equltra is an AMOLED black Material 3 10-Band System-wide Equalizer, Bass Booster, Spatial 3D, and Acoustic Reverb DSP engine for Android.
 
+Repository: https://github.com/hemantkumar30590-tech/Equltra-
+Releases: https://github.com/hemantkumar30590-tech/Equltra-/releases
+
 Features:
 - 10-Band Graphic & Parametric Equalizer (31Hz to 16kHz, -15dB to +15dB)
 - YouTube & System-wide Audio Hooking via Android DynamicsProcessing and LoudnessEnhancer

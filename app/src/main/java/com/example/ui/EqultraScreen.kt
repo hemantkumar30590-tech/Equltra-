@@ -1064,7 +1064,7 @@ private fun ApkAndGithubGuideTab() {
                 OutlinedButton(
                     onClick = {
                         runCatching {
-                            uriHandler.openUri("https://github.com/hemantkumar30590-tech/Equltra/releases")
+                            uriHandler.openUri("https://github.com/hemantkumar30590-tech/Equltra-/releases")
                         }
                     },
                     border = BorderStroke(1.dp, NeonMagenta),
@@ -1106,8 +1106,8 @@ private fun ApkAndGithubGuideTab() {
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "1. Push this project to GitHub (hemantkumar30590-tech/Equltra) using the GitHub icon in AI Studio.\n" +
-                        "2. Open https://github.com/hemantkumar30590-tech/Equltra/releases -> Tap 'Equltra-v1.0.apk'.",
+                    text = "1. Push this project to GitHub (hemantkumar30590-tech/Equltra-) using the GitHub icon in AI Studio.\n" +
+                        "2. Open https://github.com/hemantkumar30590-tech/Equltra-/releases -> Tap 'Equltra-v1.0.apk'.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextPrimary
                 )
@@ -1150,7 +1150,7 @@ private fun ApkAndGithubGuideTab() {
                             clipboard.setPrimaryClip(
                                 ClipData.newPlainText(
                                     "GitHub Releases URL",
-                                    "https://github.com/hemantkumar30590-tech/Equltra/releases"
+                                    "https://github.com/hemantkumar30590-tech/Equltra-/releases"
                                 )
                             )
                             Toast.makeText(context, "Copied Releases URL!", Toast.LENGTH_SHORT).show()

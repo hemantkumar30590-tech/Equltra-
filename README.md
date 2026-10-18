@@ -21,8 +21,8 @@ After push, go to Actions tab -> Latest workflow -> Download APK from Artifacts 
 ## How to get APK in 2 clicks from phone
 
 ### Method 1: From GitHub Releases (Phone Browser)
-1. **Click 1:** Open your GitHub repository (`https://github.com/hemantkumar30590-tech/Equltra/releases`) on your phone and tap the latest **Equltra v1.0** release.
-2. **Click 2:** Tap **`Equltra-v1.0.apk`** under **Assets** to download and install directly on your Android phone (pre-signed with debug key so no keystore setup is required).
+1. **Click 1:** Open your GitHub repository (`https://github.com/hemantkumar30590-tech/Equltra-/releases`) on your phone and tap the latest **Equltra v1.0** release.
+2. **Click 2:** Tap **`Equltra-v1.0.apk`** under **Assets** (`https://github.com/hemantkumar30590-tech/Equltra-/releases`) to download and install directly on your Android phone (pre-signed with debug key so no keystore setup is required).
 
 ### Method 2: Directly inside Google AI Studio (Phone Browser)
 1. **Click 1:** Tap the **Settings (Gear icon)** in the top-right toolbar of AI Studio.

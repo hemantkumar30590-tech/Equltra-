@@ -2,23 +2,23 @@ Categories:
   - Multimedia
 License: MIT
 AuthorName: Hemant Kumar
-SourceCode: https://github.com/hemantkumar30590-tech/Equltra
-IssueTracker: https://github.com/hemantkumar30590-tech/Equltra/issues
+SourceCode: https://github.com/hemantkumar30590-tech/Equltra-
+IssueTracker: https://github.com/hemantkumar30590-tech/Equltra-/issues
 AutoName: Equltra
 Name: Equltra
 Summary: 10-Band System-wide EQ with YouTube Hook & Bass Boost
 Description: |-
   Equltra is an AMOLED 10-band system-wide equalizer, bass booster, spatial 3D, and acoustic reverb engine for Android with YouTube & global audio session support.
 RepoType: git
-Repo: https://github.com/hemantkumar30590-tech/Equltra.git
+Repo: https://github.com/hemantkumar30590-tech/Equltra-.git
 Builds:
-  - versionName: 1.0.0
-    versionCode: 1
-    commit: main
+  - versionName: 1.0.2
+    versionCode: 2
+    commit: v1.0.2-fix-repo-url
     subdir: android/app
     gradle:
       - yes
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 1.0.0
-CurrentVersionCode: 1
+CurrentVersion: 1.0.2
+CurrentVersionCode: 2

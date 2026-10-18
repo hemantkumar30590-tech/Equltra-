@@ -10,6 +10,7 @@ import 'package:bass_boost/bass_boost.dart';
 import 'preset_manager.dart';
 import 'background_eq_service.dart';
 import 'spectrum_analyzer.dart';
+import 'screens/get_apk_screen.dart';
 
 late final PresetManager globalPresetManager;
 
@@ -481,6 +482,10 @@ class EqultraHomeScreen extends ConsumerWidget {
             icon: Icon(Icons.library_music),
             label: 'Presets',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.download),
+            label: 'Get APK',
+          ),
         ],
       ),
       body: Padding(
@@ -539,6 +544,8 @@ class EqultraHomeScreen extends ConsumerWidget {
         return _buildDevicePresetsScreen(context, eq, notifier);
       case 3:
         return _buildPresetsAndImportsScreen(context, eq, notifier);
+      case 4:
+        return const GetApkScreen();
       case 0:
       default:
         return _buildEqualizerTab(context, eq, notifier);
