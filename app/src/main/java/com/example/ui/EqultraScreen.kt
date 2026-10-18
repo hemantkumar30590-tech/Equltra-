@@ -113,7 +113,10 @@ fun EqultraScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val presets by viewModel.allPresets.collectAsStateWithLifecycle()
     val isPlayingTest by viewModel.isPlayingTestLoop.collectAsStateWithLifecycle()
+    val isAudioRecordActive by viewModel.isAudioRecordActive.collectAsStateWithLifecycle()
     val spectrumBins by viewModel.spectrumBins.collectAsStateWithLifecycle()
+    val peakHoldBins by viewModel.peakHoldBins.collectAsStateWithLifecycle()
+    val dominantFreqHz by viewModel.dominantFreqHz.collectAsStateWithLifecycle()
     val peakDb by viewModel.peakDb.collectAsStateWithLifecycle()
     val hardwareStatus by viewModel.hardwareStatus.collectAsStateWithLifecycle()
 
@@ -181,12 +184,25 @@ fun EqultraScreen(
             ) {
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Top Studio Rack Header
+                // Top Studio Rack Header & Runtime Permission Launchers
                 val context = LocalContext.current
                 val notifPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
                     contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
                 ) { _ ->
                     viewModel.setBackgroundServiceEnabled(true)
+                }
+                val recordAudioPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                    contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+                ) { granted ->
+                    if (granted) {
+                        viewModel.setAudioRecordSpectrumEnabled(true)
+                    } else {
+                        Toast.makeText(
+                            context,
+                            "Microphone permission needed for live AudioRecord FFT capture",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
 
                 StudioTopHeader(
@@ -221,7 +237,25 @@ fun EqultraScreen(
                         uiState = uiState,
                         presets = presets,
                         spectrumBins = spectrumBins,
+                        peakHoldBins = peakHoldBins,
+                        dominantFreqHz = dominantFreqHz,
+                        isAudioRecordActive = isAudioRecordActive,
                         peakDb = peakDb,
+                        onToggleAudioRecord = {
+                            if (isAudioRecordActive) {
+                                viewModel.setAudioRecordSpectrumEnabled(false)
+                            } else {
+                                val hasMicPerm = androidx.core.content.ContextCompat.checkSelfPermission(
+                                    context,
+                                    android.Manifest.permission.RECORD_AUDIO
+                                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                if (hasMicPerm) {
+                                    viewModel.setAudioRecordSpectrumEnabled(true)
+                                } else {
+                                    recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                }
+                            }
+                        },
                         onBandGainChanged = viewModel::updateBandGain,
                         onSelectPreset = viewModel::applyPreset,
                         onResetFlat = viewModel::resetToFlat,
@@ -448,7 +482,11 @@ private fun TenBandEqualizerTab(
     uiState: EqUiState,
     presets: List<EqPresetEntity>,
     spectrumBins: List<Float>,
+    peakHoldBins: List<Float>,
+    dominantFreqHz: Int,
+    isAudioRecordActive: Boolean,
     peakDb: Float,
+    onToggleAudioRecord: () -> Unit,
     onBandGainChanged: (Int, Float) -> Unit,
     onSelectPreset: (EqPresetEntity) -> Unit,
     onResetFlat: () -> Unit,
@@ -459,12 +497,16 @@ private fun TenBandEqualizerTab(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
     ) {
-        // Real-time Frequency Response Spline + 24-Bin Spectrum Visualizer
+        // Real-time AudioRecord 1024-Pt FFT Spectrum Visualizer + 10-Band Spline Response
         FrequencyResponseAndSpectrumCanvas(
             bandGainsDb = uiState.bandGainsDb,
             spectrumBins = spectrumBins,
+            peakHoldBins = peakHoldBins,
+            dominantFreqHz = dominantFreqHz,
+            isAudioRecordActive = isAudioRecordActive,
             isEnabled = uiState.isMasterEnabled,
-            peakDb = peakDb
+            peakDb = peakDb,
+            onToggleAudioRecord = onToggleAudioRecord
         )
 
         Spacer(modifier = Modifier.height(12.dp))

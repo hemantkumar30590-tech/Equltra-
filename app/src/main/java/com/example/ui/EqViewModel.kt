@@ -47,7 +47,10 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
 
     val allPresets: StateFlow<List<EqPresetEntity>>
     val isPlayingTestLoop: StateFlow<Boolean>
+    val isAudioRecordActive: StateFlow<Boolean>
     val spectrumBins: StateFlow<List<Float>>
+    val peakHoldBins: StateFlow<List<Float>>
+    val dominantFreqHz: StateFlow<Int>
     val peakDb: StateFlow<Float>
     val hardwareStatus: StateFlow<String>
 
@@ -89,7 +92,10 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
             )
 
         isPlayingTestLoop = dspEngine.isPlayingTestLoop
+        isAudioRecordActive = dspEngine.isAudioRecordActive
         spectrumBins = dspEngine.spectrumBins
+        peakHoldBins = dspEngine.peakHoldBins
+        dominantFreqHz = dspEngine.dominantFreqHz
         peakDb = dspEngine.peakDb
         hardwareStatus = dspEngine.hardwareStatus
 
@@ -256,6 +262,10 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleTestAudioLoop() {
         dspEngine.toggleTestAudioLoop()
+    }
+
+    fun setAudioRecordSpectrumEnabled(enable: Boolean) {
+        dspEngine.toggleAudioRecordSpectrum(enable)
     }
 
     private fun syncDspEngine() {

@@ -62,8 +62,12 @@ import kotlin.math.sin
 fun FrequencyResponseAndSpectrumCanvas(
     bandGainsDb: List<Float>,
     spectrumBins: List<Float>,
+    peakHoldBins: List<Float>,
+    dominantFreqHz: Int,
+    isAudioRecordActive: Boolean,
     isEnabled: Boolean,
     peakDb: Float,
+    onToggleAudioRecord: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val activeColor = if (isEnabled) ElectricCyan else TextMuted
@@ -72,17 +76,25 @@ fun FrequencyResponseAndSpectrumCanvas(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(175.dp)
+            .height(192.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(
                 Brush.verticalGradient(
                     colors = listOf(Color(0xFF070B14), AmoledBlack)
                 )
             )
-            .border(1.dp, ObsidianBorder, RoundedCornerShape(16.dp))
+            .border(
+                1.dp,
+                if (isAudioRecordActive) ElectricCyan.copy(alpha = 0.7f) else ObsidianBorder,
+                RoundedCornerShape(16.dp)
+            )
             .padding(12.dp)
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 24.dp, bottom = 14.dp)
+        ) {
             val w = size.width
             val h = size.height
             val midY = h / 2f
@@ -100,20 +112,21 @@ fun FrequencyResponseAndSpectrumCanvas(
                 )
             }
 
-            // Real-time 24-bin spectrum bars in background
+            // Real-time 24-bin FFT spectrum bars + floating Amber Peak-Hold caps
             val binCount = spectrumBins.size.coerceAtLeast(1)
             val barSpacing = w / binCount
-            val barWidth = (barSpacing * 0.62f).coerceAtLeast(4f)
+            val barWidth = (barSpacing * 0.64f).coerceAtLeast(4f)
             for (i in spectrumBins.indices) {
                 val amp = if (isEnabled) spectrumBins[i].coerceIn(0.04f, 1f) else 0.05f
-                val barHeight = amp * h * 0.86f
+                val barHeight = amp * h * 0.90f
                 val x = i * barSpacing + (barSpacing - barWidth) / 2f
                 val y = h - barHeight
                 drawRoundRect(
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            activeColor.copy(alpha = 0.42f),
-                            HyperViolet.copy(alpha = 0.22f),
+                            if (isAudioRecordActive) NeonMagenta.copy(alpha = 0.62f) else activeColor.copy(alpha = 0.46f),
+                            activeColor.copy(alpha = 0.32f),
+                            HyperViolet.copy(alpha = 0.18f),
                             Color.Transparent
                         ),
                         startY = y,
@@ -123,14 +136,27 @@ fun FrequencyResponseAndSpectrumCanvas(
                     size = Size(barWidth, barHeight),
                     cornerRadius = CornerRadius(4f, 4f)
                 )
+
+                // Floating Peak-Hold cap above each FFT bar
+                val peakHold = if (isEnabled) {
+                    peakHoldBins.getOrElse(i) { amp }.coerceIn(amp, 1f)
+                } else 0.06f
+                val peakY = (h - peakHold * h * 0.90f).coerceIn(2f, h - 3f)
+                drawLine(
+                    color = if (isEnabled) StudioAmber else TextMuted,
+                    start = Offset(x, peakY),
+                    end = Offset(x + barWidth, peakY),
+                    strokeWidth = 2.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
             }
 
-            // Compute 10-band control points
+            // Compute 10-band control points for EQ response curve
             if (bandGainsDb.size >= 10) {
                 val points = List(10) { idx ->
                     val x = (idx.toFloat() / 9f) * w
                     val db = if (isEnabled) bandGainsDb[idx].coerceIn(-15f, 15f) else 0f
-                    val normalized = (db / 15f) // -1..+1
+                    val normalized = (db / 15f)
                     val y = (midY - normalized * (midY * 0.82f)).coerceIn(6f, h - 6f)
                     Offset(x, y)
                 }
@@ -156,7 +182,7 @@ fun FrequencyResponseAndSpectrumCanvas(
                     path = fillPath,
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            activeColor.copy(alpha = 0.30f),
+                            activeColor.copy(alpha = 0.28f),
                             secondaryGlow.copy(alpha = 0.08f),
                             Color.Transparent
                         )
@@ -166,48 +192,99 @@ fun FrequencyResponseAndSpectrumCanvas(
                 drawPath(
                     path = curvePath,
                     color = activeColor,
-                    style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                    style = Stroke(width = 2.8.dp.toPx(), cap = StrokeCap.Round)
                 )
 
-                // Draw glowing node dots for each of the 10 bands
                 points.forEachIndexed { idx, pt ->
                     val nodeColor = if (bandGainsDb[idx] > 4f && isEnabled) NeonMagenta else activeColor
                     drawCircle(
                         color = nodeColor.copy(alpha = 0.3f),
-                        radius = 7.dp.toPx(),
+                        radius = 6.5.dp.toPx(),
                         center = pt
                     )
                     drawCircle(
                         color = nodeColor,
-                        radius = 3.5.dp.toPx(),
+                        radius = 3.2.dp.toPx(),
                         center = pt
                     )
                 }
             }
         }
 
-        // Overlay HUD telemetry badges
+        // Top HUD: AudioRecord FFT status + Dominant Frequency + Live Mic FFT Toggle
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = if (isEnabled) "SPLINE 10-BAND • 64-BIT DSP" else "DSP BYPASSED",
-                style = MaterialTheme.typography.labelSmall,
-                color = if (isEnabled) ElectricCyan else TextMuted,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = if (isAudioRecordActive) {
+                        "AUDIORECORD 1024-FFT • DOM ${dominantFreqHz}Hz"
+                    } else if (isEnabled) {
+                        "24-BIN SPECTRUM • DOM ${dominantFreqHz}Hz"
+                    } else {
+                        "SPECTRUM BYPASSED"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isAudioRecordActive) NeonMagenta else if (isEnabled) ElectricCyan else TextMuted,
+                    modifier = Modifier
+                        .background(Color(0xCC000000), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                )
+
+                Text(
+                    text = String.format(Locale.US, "%+.1f dB", peakDb),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (peakDb > -3f) StudioAmber else SignalEmerald,
+                    modifier = Modifier
+                        .background(Color(0xCC000000), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                )
+            }
+
+            // Live AudioRecord FFT Mic Capture Toggle Pill
+            Box(
                 modifier = Modifier
-                    .background(Color(0xAA000000), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
-            )
-            Text(
-                text = String.format(Locale.US, "PEAK %+.1f dBFS", peakDb),
-                style = MaterialTheme.typography.labelSmall,
-                color = if (peakDb > -3f) StudioAmber else SignalEmerald,
-                modifier = Modifier
-                    .background(Color(0xAA000000), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
-            )
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (isAudioRecordActive) NeonMagenta else ObsidianCard)
+                    .border(
+                        1.dp,
+                        if (isAudioRecordActive) NeonMagenta else ElectricCyan,
+                        RoundedCornerShape(8.dp)
+                    )
+                    .clickable(onClick = onToggleAudioRecord)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .testTag("audiorecord_fft_toggle_btn")
+            ) {
+                Text(
+                    text = if (isAudioRecordActive) "● MIC FFT LIVE" else "LIVE MIC FFT",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isAudioRecordActive) Color.White else ElectricCyan,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // Bottom Frequency Axis Labels
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            listOf("31Hz", "125Hz", "500Hz", "2kHz", "8kHz", "16kHz").forEach { freq ->
+                Text(
+                    text = freq,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                    color = TextSecondary
+                )
+            }
         }
     }
 }

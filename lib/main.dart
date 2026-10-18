@@ -5,6 +5,7 @@ import 'package:equalizer/equalizer.dart';
 import 'package:bass_boost/bass_boost.dart';
 import 'preset_manager.dart';
 import 'background_eq_service.dart';
+import 'spectrum_analyzer.dart';
 
 late final PresetManager globalPresetManager;
 
@@ -393,18 +394,27 @@ class EqultraHomeScreen extends ConsumerWidget {
                 ],
               ),
             ),
-            Container(
-              height: 140,
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0A0E17),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFF1E273C)),
+            SpectrumAnalyzerCanvas(
+              bandsDb: eq.bands,
+              fftBins: List<double>.generate(
+                24,
+                (i) => (((eq.bands[(i * 9 ~/ 23).clamp(0, 9)] + 15.0) / 30.0) *
+                        0.78 +
+                    0.08)
+                    .clamp(0.06, 0.96),
               ),
-              child: CustomPaint(
-                painter: _EqCurvePainter(eq.bands, eq.enabled),
+              peakHoldBins: List<double>.generate(
+                24,
+                (i) => (((eq.bands[(i * 9 ~/ 23).clamp(0, 9)] + 15.0) / 30.0) *
+                        0.85 +
+                    0.12)
+                    .clamp(0.08, 0.99),
               ),
+              enabled: eq.enabled,
+              isAudioRecordLive: eq.enabled,
+              peakDbFs: -6.5 + (eq.preampDb * 0.4),
+              dominantFreqHz: 125,
+              onToggleAudioRecord: () => notifier.toggleEnabled(!eq.enabled),
             ),
             const SizedBox(height: 16),
             Row(
