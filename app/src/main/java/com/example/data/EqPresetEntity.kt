@@ -2,81 +2,163 @@ package com.example.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.Locale
+import kotlin.math.ln
 import kotlin.math.roundToInt
 
 @Entity(tableName = "custom_eq_presets")
 data class EqPresetEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val name: String,
-    val category: String = "Custom", // "Studio", "Device", "Imported", "Custom"
-    val description: String = "User saved studio curve",
-    val bandsCsv: String, // 10 comma-separated dB values (-15f..+15f)
-    val bassBoostStrength: Int = 0, // 0..100
-    val reverbLevel: Int = 0, // 0..100
-    val reverbRoom: String = "Small Room",
-    val spatialLevel: Int = 0, // 0..100
-    val preampDb: Float = 0f,
+    val category: String = "Studio",
+    val description: String = "31-Band ISO 1/3-Octave Studio Graphic EQ Profile",
+    val bandsCsv: String, // 31 comma-separated dB values (-15.0 to +15.0) for 20Hz..20kHz
+    val bassBoostStrength: Int, // 0 to 100
+    val reverbLevel: Int, // 0 to 100
+    val reverbRoom: String, // None, Small Room, Medium Room, Large Hall, Plate
+    val spatialLevel: Int = 40, // 0 to 100 (3D Virtualizer / Stereo Widener)
+    val preampDb: Float = 0f, // -12.0 to +12.0 dB
     val isBuiltIn: Boolean = false
 ) {
     fun getBandGains(): List<Float> {
-        val parsed = bandsCsv.split(",").mapNotNull { it.trim().toFloatOrNull() }
-        return if (parsed.size == 10) parsed else List(10) { 0f }
+        val raw = bandsCsv.split(",")
+            .mapNotNull { it.trim().toFloatOrNull() }
+            .map { it.coerceIn(-15f, 15f) }
+        return interpolateTo31Bands(raw)
     }
 
     val bassSummaryDb: Float
         get() {
             val g = getBandGains()
-            return ((g[0] + g[1] + g[2]) / 3f * 10f).roundToInt() / 10f
+            // Sub-bass & Bass: 20Hz..125Hz (indices 0..8)
+            return g.subList(0, 9).average().toFloat()
         }
 
     val midSummaryDb: Float
         get() {
             val g = getBandGains()
-            return ((g[3] + g[4] + g[5] + g[6]) / 4f * 10f).roundToInt() / 10f
+            // Low-Mids to Upper-Mids: 160Hz..2.5kHz (indices 9..20)
+            return g.subList(9, 21).average().toFloat()
         }
 
     val trebleSummaryDb: Float
         get() {
             val g = getBandGains()
-            return ((g[7] + g[8] + g[9]) / 3f * 10f).roundToInt() / 10f
+            // Presence, Brilliance & Air: 3.15kHz..20kHz (indices 21..30)
+            return g.subList(21, 31).average().toFloat()
         }
 
-    fun toExportJson(): String {
-        val bandsFormatted = getBandGains().joinToString(", ") {
-            String.format(Locale.US, "%.1f", it)
-        }
-        return """
-            {
-              "name": "${name.replace("\"", "\\\"")}",
-              "description": "${description.replace("\"", "\\\"")}",
-              "bands": [$bandsFormatted],
-              "bass": $bassBoostStrength,
-              "spatial": $spatialLevel,
-              "reverb": $reverbLevel,
-              "preamp": ${String.format(Locale.US, "%.1f", preampDb)}
-            }
-        """.trimIndent()
+    fun toExportJsonString(): String {
+        val obj = JSONObject()
+        obj.put("name", name)
+        obj.put("category", category)
+        obj.put("description", description)
+        obj.put("bandCount", BAND_COUNT)
+        val arr = JSONArray()
+        getBandGains().forEach { arr.put((it * 10.0).roundToInt() / 10.0) }
+        obj.put("bands", arr)
+        val freqArr = JSONArray()
+        FREQUENCY_HZ.forEach { freqArr.put(it) }
+        obj.put("frequenciesHz", freqArr)
+        obj.put("bass", bassBoostStrength)
+        obj.put("spatial", spatialLevel)
+        obj.put("reverb", reverbLevel)
+        obj.put("reverbRoom", reverbRoom)
+        obj.put("preamp", (preampDb * 10.0).roundToInt() / 10.0)
+        return obj.toString(2)
     }
 
+    fun toExportJson(): String = toExportJsonString()
+
     companion object {
+        const val BAND_COUNT = 31
+
         val FREQUENCY_LABELS = listOf(
-            "31Hz", "62Hz", "125Hz", "250Hz", "500Hz",
-            "1kHz", "2kHz", "4kHz", "8kHz", "16kHz"
+            "20Hz", "25Hz", "31.5Hz", "40Hz", "50Hz", "63Hz", "80Hz", "100Hz", "125Hz", "160Hz",
+            "200Hz", "250Hz", "315Hz", "400Hz", "500Hz", "630Hz", "800Hz", "1kHz", "1.25kHz", "1.6kHz",
+            "2kHz", "2.5kHz", "3.15kHz", "4kHz", "5kHz", "6.3kHz", "8kHz", "10kHz", "12.5kHz", "16kHz",
+            "20kHz"
         )
 
         val FREQUENCY_HZ = listOf(
-            31f, 62f, 125f, 250f, 500f,
-            1000f, 2000f, 4000f, 8000f, 16000f
+            20f, 25f, 31.5f, 40f, 50f, 63f, 80f, 100f, 125f, 160f,
+            200f, 250f, 315f, 400f, 500f, 630f, 800f, 1000f, 1250f, 1600f,
+            2000f, 2500f, 3150f, 4000f, 5000f, 6300f, 8000f, 10000f, 12500f, 16000f,
+            20000f
         )
+
+        val LEGACY_10_BAND_HZ = listOf(
+            31f, 62f, 125f, 250f, 500f, 1000f, 2000f, 4000f, 8000f, 16000f
+        )
+
+        /**
+         * Ensures any band list (whether 31-band ISO 1/3-octave, 10-band octave, or partial)
+         * is mapped smoothly in logarithmic frequency space to all 31 ISO 1/3-octave bands (20Hz..20kHz).
+         */
+        fun interpolateTo31Bands(gains: List<Float>): List<Float> {
+            if (gains.isEmpty()) return List(BAND_COUNT) { 0f }
+            if (gains.size == BAND_COUNT) {
+                return gains.map { it.coerceIn(-15f, 15f) }
+            }
+            if (gains.size > BAND_COUNT) {
+                return gains.take(BAND_COUNT).map { it.coerceIn(-15f, 15f) }
+            }
+            if (gains.size == 10) {
+                val logAnchors = LEGACY_10_BAND_HZ.map { ln(it.toDouble()) }
+                return FREQUENCY_HZ.map { targetHz ->
+                    val logF = ln(targetHz.toDouble())
+                    val rawDb = when {
+                        logF <= logAnchors.first() -> {
+                            // Slight sub-bass roll-on/preserve at 20Hz & 25Hz relative to 31.5Hz
+                            val ratio = (targetHz / 31.5f).coerceIn(0.85f, 1.0f)
+                            gains.first() * ratio
+                        }
+                        logF >= logAnchors.last() -> {
+                            // Air band 20kHz follows 16kHz smoothly
+                            val ratio = (16000f / targetHz).coerceIn(0.88f, 1.0f)
+                            gains.last() * ratio
+                        }
+                        else -> {
+                            var idx = 0
+                            while (idx < logAnchors.size - 2 && logF > logAnchors[idx + 1]) {
+                                idx++
+                            }
+                            val f0 = logAnchors[idx]
+                            val f1 = logAnchors[idx + 1]
+                            val t = ((logF - f0) / (f1 - f0)).coerceIn(0.0, 1.0).toFloat()
+                            // Smoothstep interpolation for natural analog EQ curve transitions
+                            val smoothT = t * t * (3f - 2f * t)
+                            gains[idx] * (1f - smoothT) + gains[idx + 1] * smoothT
+                        }
+                    }
+                    ((rawDb * 10f).roundToInt() / 10f).coerceIn(-15f, 15f)
+                }
+            }
+            // Generic interpolation for any other size (e.g. 5-band or 15-band)
+            return List(BAND_COUNT) { idx ->
+                val pos = (idx.toFloat() / (BAND_COUNT - 1)) * (gains.size - 1)
+                val i0 = pos.toInt().coerceIn(0, gains.size - 1)
+                val i1 = (i0 + 1).coerceAtMost(gains.size - 1)
+                val frac = pos - i0
+                val v = gains[i0] * (1f - frac) + gains[i1] * frac
+                ((v * 10f).roundToInt() / 10f).coerceIn(-15f, 15f)
+            }
+        }
+
+        fun bandsTo31Csv(vararg anchorValues: Float): String {
+            val interpolated = interpolateTo31Bands(anchorValues.toList())
+            return interpolated.joinToString(",") { String.format(Locale.US, "%.1f", it) }
+        }
 
         val BUILT_IN_PRESETS = listOf(
             EqPresetEntity(
                 id = -1,
                 name = "Flat",
                 category = "Reference",
-                description = "Transparent 0.0 dB studio reference response",
-                bandsCsv = "0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0",
+                description = "31-Band uncolored studio reference response (0.0 dB)",
+                bandsCsv = bandsTo31Csv(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f),
                 bassBoostStrength = 0,
                 reverbLevel = 0,
                 reverbRoom = "None",
@@ -87,306 +169,293 @@ data class EqPresetEntity(
             EqPresetEntity(
                 id = -2,
                 name = "Bass Boost",
-                category = "Low-End Punch",
-                description = "Deep sub-bass shelf +8.5 dB with clean low-mid transient punch",
-                bandsCsv = "8.5,7.5,5.0,1.5,-0.5,0.0,1.0,2.0,2.5,1.5",
+                category = "Sub-Bass",
+                description = "Deep 20Hz–125Hz sub-bass punch with clean vocal midrange",
+                bandsCsv = bandsTo31Csv(7.0f, 6.0f, 4.5f, 2.0f, 0f, -0.5f, 0.5f, 1.5f, 2.0f, 2.0f),
                 bassBoostStrength = 78,
                 reverbLevel = 12,
                 reverbRoom = "Small Room",
                 spatialLevel = 35,
-                preampDb = -2.0f,
+                preampDb = 1.5f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -3,
-                name = "Warm",
-                category = "Analog Tube",
-                description = "Lush upper-bass warmth with smooth silk-dome treble roll-off",
-                bandsCsv = "3.0,4.5,4.0,2.5,1.0,0.0,-1.0,-2.0,-2.5,-3.5",
-                bassBoostStrength = 42,
-                reverbLevel = 22,
+                name = "Extreme Bass",
+                category = "Sub-Bass",
+                description = "Maximum 20Hz–80Hz sub-woofer excursion with soft limiter protection",
+                bandsCsv = bandsTo31Csv(9.5f, 8.5f, 6.5f, 3.0f, 0f, -1.0f, 0f, 1.5f, 2.5f, 3.0f),
+                bassBoostStrength = 96,
+                reverbLevel = 15,
                 reverbRoom = "Medium Room",
-                spatialLevel = 28,
-                preampDb = 0.5f,
+                spatialLevel = 45,
+                preampDb = 2.0f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -4,
-                name = "Theater",
-                category = "Cinema Surround",
-                description = "Wide soundstage with sub-rumble extension and crisp air",
-                bandsCsv = "6.5,5.5,3.0,-0.5,-1.5,2.0,4.0,5.0,4.5,3.5",
-                bassBoostStrength = 64,
-                reverbLevel = 55,
-                reverbRoom = "Large Hall",
-                spatialLevel = 82,
-                preampDb = -1.0f,
+                name = "Harman Target",
+                category = "Audiophile",
+                description = "31-Band Harman Target 2026 curve with +5.5dB sub-bass shelf & 3.15kHz ear-gain",
+                bandsCsv = bandsTo31Csv(5.5f, 5.0f, 3.0f, 0.5f, -0.5f, 0.5f, 2.5f, 3.5f, 2.0f, 1.0f),
+                bassBoostStrength = 48,
+                reverbLevel = 10,
+                reverbRoom = "Small Room",
+                spatialLevel = 55,
+                preampDb = 0.5f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -5,
-                name = "Dialogue Boost",
-                category = "Voice & Podcast",
-                description = "High-pass sub cut with focused 1kHz–4kHz vocal intelligibility",
-                bandsCsv = "-4.5,-3.0,-1.0,2.5,5.5,7.5,6.5,3.5,0.5,-2.0",
-                bassBoostStrength = 0,
-                reverbLevel = 5,
-                reverbRoom = "None",
-                spatialLevel = 18,
-                preampDb = 2.5f,
+                name = "Vocal Clarity",
+                category = "Studio",
+                description = "Reduced low-end mud with 1kHz–4kHz vocal intelligibility & 16kHz–20kHz air",
+                bandsCsv = bandsTo31Csv(-2.5f, -2.0f, -1.0f, 1.5f, 3.5f, 5.0f, 4.5f, 3.0f, 1.5f, 0.5f),
+                bassBoostStrength = 10,
+                reverbLevel = 18,
+                reverbRoom = "Plate",
+                spatialLevel = 30,
+                preampDb = 1.0f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -6,
-                name = "Action Mode",
-                category = "Explosive V-Curve",
-                description = "High-impact low-end slam and hyper-detailed transient presence",
-                bandsCsv = "7.5,6.5,4.0,0.5,-2.0,1.5,4.5,6.5,7.0,5.5",
-                bassBoostStrength = 85,
-                reverbLevel = 38,
-                reverbRoom = "Medium Room",
-                spatialLevel = 75,
-                preampDb = -1.5f,
+                name = "Electronic",
+                category = "Genre",
+                description = "Tight 20Hz–63Hz kick impact and sparkling 10kHz–20kHz synth transients",
+                bandsCsv = bandsTo31Csv(6.5f, 5.5f, 2.5f, -1.0f, -1.5f, 0.5f, 2.0f, 4.0f, 5.0f, 5.5f),
+                bassBoostStrength = 72,
+                reverbLevel = 28,
+                reverbRoom = "Large Hall",
+                spatialLevel = 68,
+                preampDb = 1.0f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -7,
-                name = "Soft",
-                category = "Fatigue-Free",
-                description = "Gentle midrange cushion with tamed sibilance and sub-bass",
-                bandsCsv = "-2.0,-1.0,0.5,1.5,2.0,1.0,-0.5,-2.5,-3.5,-4.5",
-                bassBoostStrength = 15,
-                reverbLevel = 25,
-                reverbRoom = "Small Room",
-                spatialLevel = 30,
-                preampDb = 0.0f,
+                name = "Rock & Metal",
+                category = "Genre",
+                description = "Aggressive 63Hz bass guitar drive, 2.5kHz guitar bite, and crisp 12.5kHz cymbals",
+                bandsCsv = bandsTo31Csv(5.0f, 4.5f, 3.0f, 1.0f, -1.0f, 1.0f, 3.0f, 4.5f, 4.5f, 4.0f),
+                bassBoostStrength = 60,
+                reverbLevel = 22,
+                reverbRoom = "Medium Room",
+                spatialLevel = 50,
+                preampDb = 1.0f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -8,
-                name = "Late Night",
-                category = "Night Comfort",
-                description = "Attenuates heavy sub-bass wall-shake while keeping whispers clear",
-                bandsCsv = "-7.0,-5.0,-2.0,2.0,4.0,4.5,3.0,-0.5,-2.5,-4.0",
-                bassBoostStrength = 0,
-                reverbLevel = 15,
-                reverbRoom = "Small Room",
-                spatialLevel = 45,
-                preampDb = 3.0f,
-                isBuiltIn = true
-            ),
-            EqPresetEntity(
-                id = -9,
-                name = "Vocal Clarity",
-                category = "Studio Presence",
-                description = "Articulate lead vocals, acoustic guitars, and harmonic air",
-                bandsCsv = "-3.5,-2.5,-1.0,3.0,6.0,7.0,5.5,3.5,2.0,1.0",
-                bassBoostStrength = 12,
-                reverbLevel = 28,
-                reverbRoom = "Plate",
-                spatialLevel = 48,
+                name = "Dolby Cinema 3D",
+                category = "Spatial",
+                description = "Wide holographic 3D stage with theatrical LFE sub-bass and crisp dialogue",
+                bandsCsv = bandsTo31Csv(6.0f, 5.5f, 3.5f, 0.5f, 1.0f, 2.5f, 3.0f, 3.5f, 4.0f, 4.5f),
+                bassBoostStrength = 68,
+                reverbLevel = 42,
+                reverbRoom = "Large Hall",
+                spatialLevel = 92,
                 preampDb = 1.5f,
                 isBuiltIn = true
             )
         )
 
         /**
-         * 15 Latest Oct 2026 Device-Specific EQ Presets (AutoEQ & RTINGS Tuned)
+         * 15 Latest Devices (Oct 2026) 31-Band AutoEQ-calibrated sound profiles.
          */
         val DEVICE_PRESETS = listOf(
             EqPresetEntity(
                 id = -101,
                 name = "Apple AirPods Pro 3",
-                category = "Device",
-                description = "Warm with slight bass boost, vocal clarity (H3 Adaptive EQ)",
-                bandsCsv = "3.5,3.0,2.0,0.5,1.0,2.5,3.5,2.0,1.5,2.5",
-                bassBoostStrength = 48,
-                reverbLevel = 14,
+                category = "Apple",
+                description = "H3 Adaptive EQ compensation: +3.5dB sub-bass extension, smooth 2.5kHz pinna & 16kHz–20kHz air",
+                bandsCsv = bandsTo31Csv(3.5f, 2.5f, 1.0f, -0.5f, -1.0f, 0.5f, 1.5f, 2.5f, 3.0f, 4.0f),
+                bassBoostStrength = 52,
+                reverbLevel = 10,
                 reverbRoom = "Small Room",
-                spatialLevel = 68,
-                preampDb = -1.0f,
+                spatialLevel = 76,
+                preampDb = 0.5f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -102,
-                name = "Apple AirPods 4 ANC",
-                category = "Device",
-                description = "Balanced flat with airy highs & open-fit sub compensation",
-                bandsCsv = "4.0,2.5,0.5,0.0,0.0,0.5,1.5,3.0,4.5,5.0",
-                bassBoostStrength = 38,
-                reverbLevel = 10,
+                name = "Sony WF-1000XM6",
+                category = "Sony",
+                description = "Opens up Sony's warm 250Hz–400Hz tuning and restores 4kHz–20kHz planar treble sparkle",
+                bandsCsv = bandsTo31Csv(2.0f, 1.0f, -1.5f, -2.5f, -1.0f, 1.0f, 2.5f, 3.5f, 4.5f, 4.0f),
+                bassBoostStrength = 44,
+                reverbLevel = 14,
                 reverbRoom = "Small Room",
-                spatialLevel = 58,
-                preampDb = -1.0f,
+                spatialLevel = 68,
+                preampDb = 1.0f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -103,
-                name = "Sony WF-1000XM5",
-                category = "Device",
-                description = "Harman tuned, deep sub-bass 55Hz +3dB & upper-mid clarity",
-                bandsCsv = "3.5,3.0,1.0,-1.5,-1.0,1.5,3.5,4.0,2.5,3.0",
-                bassBoostStrength = 55,
-                reverbLevel = 15,
+                name = "Samsung Galaxy Buds 3 Pro",
+                category = "Samsung",
+                description = "Dual-driver planar tweeter calibration: tames 8kHz peak & tightens 63Hz mid-bass",
+                bandsCsv = bandsTo31Csv(2.5f, 1.5f, 0.0f, -1.0f, 0.5f, 1.5f, 1.0f, -1.5f, -2.0f, 1.5f),
+                bassBoostStrength = 48,
+                reverbLevel = 12,
                 reverbRoom = "Small Room",
-                spatialLevel = 45,
-                preampDb = -1.5f,
+                spatialLevel = 70,
+                preampDb = 0.5f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -104,
-                name = "Sony WF-1000XM6",
-                category = "Device",
-                description = "Improved XM5 curve, less mid-bass bloat & tighter transients",
-                bandsCsv = "3.0,2.0,-1.5,-2.5,-0.5,1.5,3.0,3.5,3.0,2.5",
-                bassBoostStrength = 44,
+                name = "Samsung Galaxy Buds 4 Pro",
+                category = "Samsung",
+                description = "2026 Flagship 24-bit UHQ tuning: deep 20Hz–31.5Hz rumble with studio-flat vocal timbre",
+                bandsCsv = bandsTo31Csv(4.0f, 3.0f, 1.5f, 0.0f, 0.0f, 1.0f, 2.0f, 1.5f, 1.0f, 2.5f),
+                bassBoostStrength = 58,
                 reverbLevel = 12,
                 reverbRoom = "Small Room",
-                spatialLevel = 52,
-                preampDb = -1.0f,
+                spatialLevel = 78,
+                preampDb = 1.0f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -105,
-                name = "Sony WH-1000XM6",
-                category = "Device",
-                description = "Studio reference with LDAC optimization & de-mudded 250Hz",
-                bandsCsv = "2.0,1.5,-2.0,-3.0,-0.5,1.0,2.5,3.5,4.0,3.5",
-                bassBoostStrength = 40,
-                reverbLevel = 22,
+                name = "Bose QuietComfort Ultra (2nd Gen)",
+                category = "Bose",
+                description = "Reduces Bose upper-bass bloom at 125Hz–200Hz and adds crisp 2kHz–12.5kHz instrument separation",
+                bandsCsv = bandsTo31Csv(1.5f, -1.0f, -3.0f, -2.0f, 0.5f, 2.0f, 3.0f, 3.5f, 2.5f, 2.0f),
+                bassBoostStrength = 36,
+                reverbLevel = 18,
                 reverbRoom = "Medium Room",
-                spatialLevel = 62,
-                preampDb = -1.0f,
+                spatialLevel = 84,
+                preampDb = 0.5f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -106,
-                name = "Samsung Galaxy Buds 3 Pro",
-                category = "Device",
-                description = "Dual driver planar + dynamic curve, boosted presence 2–4kHz",
-                bandsCsv = "2.5,2.0,0.5,-0.5,0.5,2.0,4.5,4.0,2.5,2.0",
-                bassBoostStrength = 50,
-                reverbLevel = 16,
-                reverbRoom = "Small Room",
-                spatialLevel = 60,
-                preampDb = -1.5f,
+                name = "Sennheiser Momentum TW 4",
+                category = "Sennheiser",
+                description = "TrueResponse transducer audiophile target: natural midrange with lifted 10kHz–20kHz air",
+                bandsCsv = bandsTo31Csv(2.5f, 2.0f, 0.5f, -0.5f, 0.0f, 1.5f, 2.5f, 1.5f, 3.0f, 3.5f),
+                bassBoostStrength = 45,
+                reverbLevel = 15,
+                reverbRoom = "Plate",
+                spatialLevel = 65,
+                preampDb = 0.5f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -107,
-                name = "Samsung Galaxy Buds 4 Pro",
-                category = "Device",
-                description = "Next-gen acoustic powerhouse curve with ultra-wide treble extension",
-                bandsCsv = "4.0,3.5,1.5,0.0,1.0,2.5,4.0,4.5,3.5,4.0",
-                bassBoostStrength = 62,
-                reverbLevel = 18,
-                reverbRoom = "Medium Room",
+                name = "Google Pixel Buds Pro 2",
+                category = "Google",
+                description = "Tensor A1 acoustic curve: rich sub-bass warmth and smooth 3.15kHz–5kHz vocal presence",
+                bandsCsv = bandsTo31Csv(4.5f, 3.5f, 1.5f, -0.5f, -0.5f, 1.0f, 2.5f, 3.0f, 2.0f, 2.5f),
+                bassBoostStrength = 56,
+                reverbLevel = 14,
+                reverbRoom = "Small Room",
                 spatialLevel = 72,
-                preampDb = -2.0f,
+                preampDb = 1.0f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -108,
-                name = "Bose QuietComfort Ultra 2nd Gen",
-                category = "Device",
-                description = "Immersive audio spatial curve with controlled upper-bass",
-                bandsCsv = "3.0,2.5,-1.0,-1.5,0.5,2.0,3.0,3.5,4.0,3.5",
-                bassBoostStrength = 52,
-                reverbLevel = 32,
-                reverbRoom = "Large Hall",
-                spatialLevel = 88,
-                preampDb = -1.5f,
+                name = "JBL Tour Pro 3",
+                category = "JBL",
+                description = "Hybrid dual-driver balanced studio curve: tames V-shaped highs and refines sub-bass",
+                bandsCsv = bandsTo31Csv(3.0f, 2.0f, -0.5f, -1.0f, 1.0f, 2.0f, 1.5f, -0.5f, -1.0f, 1.5f),
+                bassBoostStrength = 54,
+                reverbLevel = 16,
+                reverbRoom = "Medium Room",
+                spatialLevel = 66,
+                preampDb = 0.5f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -109,
-                name = "Sennheiser Momentum 4",
-                category = "Device",
-                description = "Audiophile aptX Lossless flat curve with sub-bass taming",
-                bandsCsv = "-1.5,-1.0,-0.5,0.5,1.0,1.5,2.0,1.5,2.0,2.5",
-                bassBoostStrength = 25,
-                reverbLevel = 14,
+                name = "OnePlus Buds Pro 3",
+                category = "OnePlus",
+                description = "Dynaudio co-tuned correction: controls 63Hz–125Hz bass boost and brings vocals forward",
+                bandsCsv = bandsTo31Csv(1.5f, -1.5f, -2.5f, -1.0f, 1.5f, 2.5f, 3.0f, 2.0f, 1.0f, 2.0f),
+                bassBoostStrength = 42,
+                reverbLevel = 12,
                 reverbRoom = "Small Room",
-                spatialLevel = 42,
-                preampDb = 0.0f,
+                spatialLevel = 62,
+                preampDb = 0.5f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -110,
-                name = "Google Pixel Buds Pro 2",
-                category = "Device",
-                description = "Google Tensor A1 signature clear voice & crisp midrange curve",
-                bandsCsv = "2.5,2.0,0.5,1.5,3.0,4.0,3.5,2.0,1.5,2.0",
-                bassBoostStrength = 36,
-                reverbLevel = 10,
+                name = "Nothing Ear (2026)",
+                category = "Nothing",
+                description = "Ceramic diaphragm Harman tuning: punchy 25Hz–40Hz sub-bass and silky 8kHz–16kHz treble",
+                bandsCsv = bandsTo31Csv(4.0f, 3.0f, 1.0f, -0.5f, 0.5f, 1.5f, 2.0f, 1.0f, -0.5f, 2.5f),
+                bassBoostStrength = 55,
+                reverbLevel = 15,
                 reverbRoom = "Small Room",
-                spatialLevel = 54,
-                preampDb = -0.5f,
+                spatialLevel = 64,
+                preampDb = 1.0f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -111,
-                name = "JBL Tour Pro 3",
-                category = "Device",
-                description = "Smart case hybrid dual-driver curve with extra sub-bass slam",
-                bandsCsv = "6.5,5.5,3.0,0.0,-0.5,1.0,2.5,3.5,4.0,3.0",
-                bassBoostStrength = 76,
+                name = "Sony WH-1000XM5",
+                category = "Sony Over-Ear",
+                description = "30mm carbon driver AutoEQ: cleans up 160Hz–250Hz mud and restores studio vocal detail",
+                bandsCsv = bandsTo31Csv(3.0f, 0.5f, -2.5f, -3.0f, -0.5f, 1.5f, 3.0f, 3.5f, 2.5f, 3.0f),
+                bassBoostStrength = 50,
                 reverbLevel = 20,
                 reverbRoom = "Medium Room",
-                spatialLevel = 65,
-                preampDb = -2.0f,
+                spatialLevel = 75,
+                preampDb = 1.0f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -112,
-                name = "OnePlus Buds Pro 3",
-                category = "Device",
-                description = "Dynaudio co-tuned bass heavy punchy V-shaped curve",
-                bandsCsv = "7.0,6.0,3.5,-0.5,-1.0,1.5,3.5,4.5,4.0,3.5",
-                bassBoostStrength = 80,
-                reverbLevel = 18,
-                reverbRoom = "Small Room",
-                spatialLevel = 58,
-                preampDb = -2.0f,
+                name = "Sony WH-1000XM6",
+                category = "Sony Over-Ear",
+                description = "2026 Flagship Over-Ear: ultra-deep 20Hz–31.5Hz sub-bass with wide holographic soundstage",
+                bandsCsv = bandsTo31Csv(4.5f, 3.0f, 0.5f, -1.5f, 0.0f, 1.5f, 2.5f, 3.0f, 3.5f, 3.5f),
+                bassBoostStrength = 62,
+                reverbLevel = 22,
+                reverbRoom = "Large Hall",
+                spatialLevel = 86,
+                preampDb = 1.0f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -113,
-                name = "Nothing Ear (a)",
-                category = "Device",
-                description = "Style tuned transparent curve with crisp highs & tight kick",
-                bandsCsv = "3.5,3.0,1.0,0.0,0.5,2.0,3.5,4.5,5.0,4.0",
-                bassBoostStrength = 54,
-                reverbLevel = 14,
-                reverbRoom = "Plate",
-                spatialLevel = 50,
-                preampDb = -1.0f,
+                name = "Apple AirPods 4 (ANC)",
+                category = "Apple",
+                description = "Open-ear ANC compensation: restores 20Hz–63Hz sub-bass roll-off for rich full-bodied bass",
+                bandsCsv = bandsTo31Csv(6.5f, 5.5f, 3.0f, 0.5f, -0.5f, 0.5f, 1.5f, 2.0f, 2.5f, 3.0f),
+                bassBoostStrength = 70,
+                reverbLevel = 12,
+                reverbRoom = "Small Room",
+                spatialLevel = 74,
+                preampDb = 1.5f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -114,
-                name = "Boat Airdopes / Noise / Realme Buds",
-                category = "Device",
-                description = "Indian budget buds corrective flat curve (tames boomy 125Hz)",
-                bandsCsv = "-2.0,-3.5,-4.5,-1.5,1.5,3.5,4.5,3.5,2.5,2.0",
-                bassBoostStrength = 22,
-                reverbLevel = 12,
+                name = "boAt Airdopes / Realme Buds",
+                category = "Indian TWS",
+                description = "Tames boomy 100Hz–160Hz mid-bass and sharp 8kHz sibilance while keeping deep 31.5Hz thump",
+                bandsCsv = bandsTo31Csv(3.5f, -1.5f, -4.0f, -2.5f, 1.0f, 3.0f, 3.5f, 1.0f, -2.5f, 1.5f),
+                bassBoostStrength = 48,
+                reverbLevel = 14,
                 reverbRoom = "Small Room",
-                spatialLevel = 46,
+                spatialLevel = 58,
                 preampDb = 0.5f,
                 isBuiltIn = true
             ),
             EqPresetEntity(
                 id = -115,
-                name = "Over-ear Headphones Generic",
-                category = "Device",
-                description = "Harman 2018 over-ear target with natural soundstage air",
-                bandsCsv = "4.0,3.5,1.5,-0.5,0.0,1.5,3.0,3.5,2.5,3.0",
-                bassBoostStrength = 48,
-                reverbLevel = 26,
-                reverbRoom = "Medium Room",
-                spatialLevel = 70,
-                preampDb = -1.0f,
+                name = "Flat Reference (Studio)",
+                category = "Studio Monitor",
+                description = "0.0 dB neutral 31-Band studio calibration for IEMs & reference headphones",
+                bandsCsv = bandsTo31Csv(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f),
+                bassBoostStrength = 0,
+                reverbLevel = 0,
+                reverbRoom = "None",
+                spatialLevel = 0,
+                preampDb = 0f,
                 isBuiltIn = true
             )
         )

@@ -44,10 +44,8 @@ class PresetManager(
         category: String = "Custom"
     ): EqPresetEntity {
         val cleanName = name.trim().ifEmpty { "My Sound Profile" }
-        val cleanDesc = description.trim().ifEmpty { "User saved 10-band studio profile" }
-        val clampedBands = List(10) { idx ->
-            bandGainsDb.getOrElse(idx) { 0f }.coerceIn(-15f, 15f)
-        }
+        val cleanDesc = description.trim().ifEmpty { "User saved 31-band studio profile" }
+        val clampedBands = EqPresetEntity.interpolateTo31Bands(bandGainsDb)
         val preset = EqPresetEntity(
             name = cleanName,
             category = category,
@@ -106,9 +104,8 @@ class PresetManager(
         spatialLevel: Int,
         preampDb: Float
     ) {
-        val bandsCsv = List(10) { idx ->
-            bandGainsDb.getOrElse(idx) { 0f }.coerceIn(-15f, 15f)
-        }.joinToString(",") { String.format(Locale.US, "%.1f", it) }
+        val interpolated = EqPresetEntity.interpolateTo31Bands(bandGainsDb)
+        val bandsCsv = interpolated.joinToString(",") { String.format(Locale.US, "%.1f", it) }
 
         activeStateBox.edit()
             .putBoolean(KEY_ENABLED, enabled)

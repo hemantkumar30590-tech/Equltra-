@@ -30,7 +30,8 @@ import java.util.Locale
 data class EqUiState(
     val isMasterEnabled: Boolean = true,
     val isBackgroundServiceEnabled: Boolean = true,
-    val selectedTab: Int = 0, // 0: EQ, 1: Bass & DSP, 2: Device Presets, 3: Presets, 4: Get APK
+    val selectedTab: Int = 0, // 0: 31-Band EQ, 1: Bass & DSP, 2: Device Presets, 3: Presets, 4: Get APK
+    val selectedBandZone: Int = 0, // 0: All 31, 1: Sub/Bass, 2: Low-Mids, 3: High-Mids, 4: Treble/Air
     val deviceSearchQuery: String = "",
     val activePresetName: String = "Bass Boost",
     val bandGainsDb: List<Float> = EqPresetEntity.BUILT_IN_PRESETS[1].getBandGains(),
@@ -54,7 +55,7 @@ data class EqUiState(
     val lastAiEngineBadge: String = "Gemini 3.5 Flash AI",
     val lastVoiceCommandSummary: String = "Say \"Bass full 100%\", \"AirPods Pro 3\", \"Sync YouTube\", or \"AI Punjabi Bass\"",
     val voiceCommandHistory: List<String> = listOf(
-        "🎙️ Ready: Speak in Hindi, Hinglish, or English to control 10-Band EQ, Bass, 3D, Presets & AI Auto-EQ"
+        "🎙️ Ready: Speak in Hindi, Hinglish, or English to control 31-Band EQ, Bass, 3D, Presets & AI Auto-EQ"
     )
 )
 
@@ -134,9 +135,9 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
                 spatialLevel = restored.spatialLevel,
                 preampDb = restored.preampDb,
                 lastAiAnalysis = if (proUnlocked) {
-                    "OWNER PRO UNLOCKED 👑 — Tap any AI Scenario Chip, use Voice Control 🎙️, or open AI Studio to auto-tune all 10 bands & DSP."
+                    "OWNER PRO UNLOCKED 👑 — Tap any AI Scenario Chip, use Voice Control 🎙️, or open AI Studio to auto-tune all 31 bands & DSP."
                 } else {
-                    "PRO MODE LOCKED 🔒 — Exclusive AI Auto-EQ + Voice Control Mastering Engine. Tap UNLOCK PRO (or say 'Unlock Pro 30590') to access."
+                    "PRO MODE LOCKED 🔒 — Exclusive 31-Band AI Auto-EQ + Voice Control Mastering Engine. Tap UNLOCK PRO (or say 'Unlock Pro 30590') to access."
                 }
             )
         )
@@ -228,6 +229,14 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(selectedTab = clamped) }
     }
 
+    fun selectBandZone(zoneIndex: Int) {
+        val clamped = zoneIndex.coerceIn(0, 4)
+        if (_uiState.value.selectedBandZone != clamped) {
+            hapticManager.onControlTick("Band Zone $clamped")
+        }
+        _uiState.update { it.copy(selectedBandZone = clamped) }
+    }
+
     fun toggleHapticsEnabled() {
         val next = !isHapticsEnabled.value
         presetManager.setHapticsEnabled(next)
@@ -267,7 +276,7 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateBandGain(bandIndex: Int, gainDb: Float) {
-        if (bandIndex !in 0..9) return
+        if (bandIndex !in 0 until EqPresetEntity.BAND_COUNT) return
         val clamped = (kotlin.math.round(gainDb * 2f) / 2f).coerceIn(-15f, 15f)
         val oldGain = _uiState.value.bandGainsDb.getOrElse(bandIndex) { 0f }
         if (EqHapticFeedbackManager.didCrossZeroDb(oldGain, clamped)) {
@@ -277,7 +286,7 @@ class EqViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         _uiState.update { state ->
-            val updated = state.bandGainsDb.toMutableList()
+            val updated = EqPresetEntity.interpolateTo31Bands(state.bandGainsDb).toMutableList()
             updated[bandIndex] = clamped
             state.copy(
                 bandGainsDb = updated,

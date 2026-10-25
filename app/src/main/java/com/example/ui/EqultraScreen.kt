@@ -159,7 +159,7 @@ fun EqultraScreen(
                 tonalElevation = 8.dp
             ) {
                 val items = listOf(
-                    Triple(0, "10-Band EQ", Icons.Default.Equalizer),
+                    Triple(0, "31-Band EQ", Icons.Default.Equalizer),
                     Triple(1, "Bass & DSP", Icons.Default.Speaker),
                     Triple(2, "Device Presets", Icons.Default.Headphones),
                     Triple(3, "Presets", Icons.Default.LibraryMusic),
@@ -297,7 +297,7 @@ fun EqultraScreen(
                         viewModel.rehookYouTubeAudio()
                         Toast.makeText(
                             context,
-                            "YouTube & Global 10-Band DynamicsProcessing Hooked!",
+                            "YouTube & Global 31-Band DynamicsProcessing Hooked!",
                             Toast.LENGTH_SHORT
                         ).show()
                     }
@@ -334,6 +334,7 @@ fun EqultraScreen(
                             }
                         },
                         onBandGainChanged = viewModel::updateBandGain,
+                        onSelectBandZone = viewModel::selectBandZone,
                         onSelectPreset = { preset ->
                             if (isHapticsEnabled) {
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -359,7 +360,7 @@ fun EqultraScreen(
                             ) { aiPreset ->
                                 Toast.makeText(
                                     context,
-                                    "AI Auto-EQ Applied: ${aiPreset.name}",
+                                    "AI 31-Band Auto-EQ Applied: ${aiPreset.name}",
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
@@ -431,7 +432,7 @@ fun EqultraScreen(
                                 if (wasAlreadyApplied) {
                                     "Toggled OFF ${device.name} → Flat Bypass (Haptic Snap)"
                                 } else {
-                                    "Applied ${device.name} 10-Band EQ! (Tactile Haptics)"
+                                    "Applied ${device.name} 31-Band EQ! (Tactile Haptics)"
                                 },
                                 Toast.LENGTH_SHORT
                             ).show()
@@ -879,6 +880,7 @@ private fun TenBandEqualizerTab(
     peakDb: Float,
     onToggleAudioRecord: () -> Unit,
     onBandGainChanged: (Int, Float) -> Unit,
+    onSelectBandZone: (Int) -> Unit = {},
     onSelectPreset: (EqPresetEntity) -> Unit,
     onResetFlat: () -> Unit,
     onOpenSavePreset: () -> Unit,
@@ -899,7 +901,7 @@ private fun TenBandEqualizerTab(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
     ) {
-        // Real-time System Audio + AudioRecord 1024-Pt FFT Visualizer + 10-Band Spline Response
+        // Real-time System Audio + AudioRecord 1024-Pt FFT Visualizer + 31-Band Spline Response
         FrequencyResponseAndSpectrumCanvas(
             bandGainsDb = uiState.bandGainsDb,
             spectrumBins = spectrumBins,
@@ -1021,17 +1023,25 @@ private fun TenBandEqualizerTab(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Action Bar above 10-Band Fader Bank
+        // Action Bar above 31-Band ISO 1/3-Octave Fader Bank
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "10-BAND GRAPHIC EQ (-15dB TO +15dB)",
-                style = MaterialTheme.typography.labelMedium,
-                color = TextSecondary
-            )
+            Column {
+                Text(
+                    text = "31-BAND ISO 1/3-OCTAVE EQ (-15dB TO +15dB)",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = ElectricCyan,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "20Hz – 20kHz Studio Mastering Rack • Drag or Tap Zone Below",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                    color = TextSecondary
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     onClick = onResetFlat,
@@ -1081,16 +1091,72 @@ private fun TenBandEqualizerTab(
             }
         }
 
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // 31-Band Acoustic Frequency Zone Filter Strip
+        val bandZones = listOf(
+            Triple(0, "ALL 31 BANDS (20Hz–20kHz)", ElectricCyan),
+            Triple(1, "SUB & BASS (20–160Hz • B01–B10)", NeonMagenta),
+            Triple(2, "LOW-MIDS (200–800Hz • B11–B17)", ElectricCyan),
+            Triple(3, "HIGH-MIDS (1k–3.15kHz • B18–B23)", SignalEmerald),
+            Triple(4, "TREBLE & AIR (4k–20kHz • B24–B31)", HyperViolet)
+        )
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(vertical = 2.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            items(bandZones, key = { it.first }) { (zoneIdx, zoneLabel, zoneColor) ->
+                val selected = uiState.selectedBandZone == zoneIdx
+                FilterChip(
+                    selected = selected,
+                    onClick = { onSelectBandZone(zoneIdx) },
+                    modifier = Modifier.testTag("band_zone_chip_$zoneIdx"),
+                    label = {
+                        Text(
+                            text = zoneLabel,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = zoneColor,
+                        selectedLabelColor = if (zoneColor == NeonMagenta || zoneColor == HyperViolet) Color.White else AmoledBlack,
+                        containerColor = ObsidianCard,
+                        labelColor = TextSecondary
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = selected,
+                        borderColor = ObsidianBorder,
+                        selectedBorderColor = zoneColor
+                    )
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
 
-        // 10-Band Horizontal Scrollable Studio Fader Rack
+        // Determine visible band indices based on selected acoustic zone
+        val visibleBandIndices = remember(uiState.selectedBandZone) {
+            when (uiState.selectedBandZone) {
+                1 -> (0..9).toList()    // 20Hz .. 160Hz (Sub-Bass & Bass)
+                2 -> (10..16).toList()  // 200Hz .. 800Hz (Low-Mids)
+                3 -> (17..22).toList()  // 1kHz .. 3.15kHz (High-Mids / Presence)
+                4 -> (23..30).toList()  // 4kHz .. 20kHz (Treble & Air)
+                else -> (0 until EqPresetEntity.BAND_COUNT).toList() // All 31 ISO 1/3-Octave Bands
+            }
+        }
+
+        // 31-Band Horizontal Scrollable Studio Fader Rack
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            EqPresetEntity.FREQUENCY_LABELS.forEachIndexed { index, freqLabel ->
+            visibleBandIndices.forEach { index ->
+                val freqLabel = EqPresetEntity.FREQUENCY_LABELS.getOrElse(index) { "${index + 1}" }
                 VerticalEqBandFader(
                     bandIndex = index,
                     frequencyLabel = freqLabel,

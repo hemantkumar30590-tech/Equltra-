@@ -9,7 +9,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -398,14 +400,17 @@ private fun DevicePresetCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 10-band +0.0dB values + BASS % • 3D % badges (matching current UI)
+            // 31-band ISO +0.0dB values (scrollable) + BASS % • 3D % badges
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     gains.forEachIndexed { idx, db ->
@@ -416,16 +421,18 @@ private fun DevicePresetCard(
                                 color = if (db > 0f) ElectricCyan else if (db < 0f) NeonMagenta else TextSecondary
                             )
                             Text(
-                                text = EqPresetEntity.FREQUENCY_LABELS[idx].replace("Hz", ""),
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 7.5.sp),
+                                text = EqPresetEntity.FREQUENCY_LABELS.getOrElse(idx) { "${idx + 1}" }.replace("Hz", ""),
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 7.sp),
                                 color = TextMuted
                             )
                         }
                     }
                 }
 
+                Spacer(modifier = Modifier.width(8.dp))
+
                 Text(
-                    text = "BASS ${device.bassBoostStrength}% • 3D ${device.spatialLevel}%",
+                    text = "31B • BASS ${device.bassBoostStrength}% • 3D ${device.spatialLevel}%",
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                     color = NeonMagenta,
                     fontWeight = FontWeight.Bold
@@ -963,7 +970,10 @@ private fun PresetItemCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     gains.forEachIndexed { idx, db ->
@@ -971,19 +981,21 @@ private fun PresetItemCard(
                             Text(
                                 text = String.format(Locale.US, "%+.1f", db),
                                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 7.5.sp),
-                                color = if (db > 0f) ElectricCyan else TextSecondary
+                                color = if (db > 0f) ElectricCyan else if (db < 0f) NeonMagenta else TextSecondary
                             )
                             Text(
-                                text = EqPresetEntity.FREQUENCY_LABELS[idx].replace("Hz", ""),
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 7.5.sp),
+                                text = EqPresetEntity.FREQUENCY_LABELS.getOrElse(idx) { "${idx + 1}" }.replace("Hz", ""),
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 7.sp),
                                 color = TextMuted
                             )
                         }
                     }
                 }
 
+                Spacer(modifier = Modifier.width(8.dp))
+
                 Text(
-                    text = "BASS ${preset.bassBoostStrength}% • 3D ${preset.spatialLevel}%",
+                    text = "31B • BASS ${preset.bassBoostStrength}% • 3D ${preset.spatialLevel}%",
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
                     color = NeonMagenta,
                     fontWeight = FontWeight.Bold

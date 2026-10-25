@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import com.example.data.EqPresetEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -43,7 +44,7 @@ class AudioDspEngine(
     private var isMasterEnabled: Boolean = true
 
     @Volatile
-    private var currentBandsDb: FloatArray = FloatArray(10) { 0f }
+    private var currentBandsDb: FloatArray = FloatArray(EqPresetEntity.BAND_COUNT) { 0f }
 
     @Volatile
     private var bassStrength: Int = 78 // 0..100
@@ -81,13 +82,13 @@ class AudioDspEngine(
     private val _stereoVuLevels = MutableStateFlow(0.08f to 0.08f)
     val stereoVuLevels: StateFlow<Pair<Float, Float>> = _stereoVuLevels.asStateFlow()
 
-    private val _hardwareStatus = MutableStateFlow("Global YouTube & System DSP Active (10-Band DynamicsProcessing)")
+    private val _hardwareStatus = MutableStateFlow("Global YouTube & System DSP Active (31-Band DynamicsProcessing)")
     val hardwareStatus: StateFlow<String> = _hardwareStatus.asStateFlow()
 
-    private val _spectrumBins = MutableStateFlow(List(24) { 0.08f })
+    private val _spectrumBins = MutableStateFlow(List(EqPresetEntity.BAND_COUNT) { 0.08f })
     val spectrumBins: StateFlow<List<Float>> = _spectrumBins.asStateFlow()
 
-    private val _peakHoldBins = MutableStateFlow(List(24) { 0.12f })
+    private val _peakHoldBins = MutableStateFlow(List(EqPresetEntity.BAND_COUNT) { 0.12f })
     val peakHoldBins: StateFlow<List<Float>> = _peakHoldBins.asStateFlow()
 
     private val _dominantFreqHz = MutableStateFlow(125)
@@ -97,8 +98,10 @@ class AudioDspEngine(
     val peakDb: StateFlow<Float> = _peakDb.asStateFlow()
 
     private val binCenterFreqsHz = intArrayOf(
-        31, 38, 46, 56, 68, 83, 100, 125, 155, 195, 250, 315,
-        400, 500, 630, 800, 1000, 1300, 1700, 2200, 3200, 5000, 8500, 16000
+        20, 25, 31, 40, 50, 63, 80, 100, 125, 160,
+        200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600,
+        2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000,
+        20000
     )
 
     init {
@@ -147,9 +150,10 @@ class AudioDspEngine(
         limiter: Boolean
     ) {
         isMasterEnabled = enabled
-        val copy = FloatArray(10)
-        for (i in 0 until 10) {
-            copy[i] = bandsDb.getOrElse(i) { 0f }
+        val interpolated = EqPresetEntity.interpolateTo31Bands(bandsDb)
+        val copy = FloatArray(EqPresetEntity.BAND_COUNT)
+        for (i in 0 until EqPresetEntity.BAND_COUNT) {
+            copy[i] = interpolated[i].coerceIn(-15f, 15f)
         }
         currentBandsDb = copy
         bassStrength = bass.coerceIn(0, 100)
@@ -161,7 +165,7 @@ class AudioDspEngine(
 
         globalEffectManager.updateParameters(
             enabled = enabled,
-            bandsDb = bandsDb,
+            bandsDb = interpolated,
             bass = bassStrength,
             reverb = reverbAmount,
             reverbRoom = reverbRoomType,
@@ -235,7 +239,7 @@ class AudioDspEngine(
 
             var lpSub = 0f
             var lpMid = 0f
-            val peakHolds = FloatArray(24) { 0.12f }
+            val peakHolds = FloatArray(EqPresetEntity.BAND_COUNT) { 0.12f }
             val waveSnapshot = FloatArray(64)
 
             while (isActive && _isPlayingTestLoop.value) {
@@ -247,13 +251,16 @@ class AudioDspEngine(
                 val preampLinear = if (active) 10.0.pow(preampDb / 20.0).toFloat() else 1.0f
 
                 val subEqGain = if (active) {
-                    10.0.pow(((bands[0] * 0.45 + bands[1] * 0.35 + bands[2] * 0.20) / 20.0)).toFloat()
+                    val subDb = (0..8).map { bands.getOrElse(it) { 0f } }.average()
+                    10.0.pow(subDb / 20.0).toFloat()
                 } else 1f
                 val midEqGain = if (active) {
-                    10.0.pow(((bands[3] * 0.25 + bands[4] * 0.35 + bands[5] * 0.25 + bands[6] * 0.15) / 20.0)).toFloat()
+                    val midDb = (9..20).map { bands.getOrElse(it) { 0f } }.average()
+                    10.0.pow(midDb / 20.0).toFloat()
                 } else 1f
                 val highEqGain = if (active) {
-                    10.0.pow(((bands[7] * 0.35 + bands[8] * 0.35 + bands[9] * 0.30) / 20.0)).toFloat()
+                    val highDb = (21..30).map { bands.getOrElse(it) { 0f } }.average()
+                    10.0.pow(highDb / 20.0).toFloat()
                 } else 1f
 
                 var maxPeak = 0f
@@ -340,17 +347,11 @@ class AudioDspEngine(
                     val beatPulse = ((sampleCursor % 11025).toFloat() / 11025f)
                     var domBin = 0
                     var domVal = 0f
-                    val bins = List(24) { idx ->
-                        val bandPos = (idx / 23f) * 9f
-                        val lowIdx = bandPos.toInt().coerceIn(0, 9)
-                        val highIdx = min(9, lowIdx + 1)
-                        val frac = bandPos - lowIdx
-                        val db = if (active) {
-                            bands[lowIdx] * (1f - frac) + bands[highIdx] * frac
-                        } else 0f
-                        val bassBump = if (idx < 6 && active) (bassStrength / 100f) * 0.28f else 0f
+                    val bins = List(EqPresetEntity.BAND_COUNT) { idx ->
+                        val db = if (active) bands.getOrElse(idx) { 0f } else 0f
+                        val bassBump = if (idx < 9 && active) (bassStrength / 100f) * 0.28f * (1f - idx / 9f) else 0f
                         val normalizedEq = ((db + 15f) / 30f).coerceIn(0.08f, 1f)
-                        val groove = 0.22f * abs(sin((idx * 0.7f + beatPulse * 6.28f).toDouble())).toFloat()
+                        val groove = 0.22f * abs(sin((idx * 0.55f + beatPulse * 6.28f).toDouble())).toFloat()
                         val volScale = (0.35f + sysVol * 0.65f)
                         val level = if (active) {
                             ((normalizedEq * 0.72f + bassBump + groove) * volScale).coerceIn(0.06f, 0.98f)
@@ -377,7 +378,7 @@ class AudioDspEngine(
                     } else {
                         0.04f to 0.04f
                     }
-                    _dominantFreqHz.value = binCenterFreqsHz[domBin]
+                    _dominantFreqHz.value = binCenterFreqsHz.getOrElse(domBin) { 125 }
                     val dbReadout = (20f * log10((maxPeak * (0.4f + sysVol * 0.6f)).coerceAtLeast(0.001f))).coerceIn(-48f, 3.0f)
                     _peakDb.value = dbReadout
                 }
@@ -408,7 +409,7 @@ class AudioDspEngine(
     private fun startSpectrumCoordinator() {
         spectrumJob = scope.launch(Dispatchers.Default) {
             var tick = 0f
-            val idlePeaks = FloatArray(24) { 0.12f }
+            val idlePeaks = FloatArray(EqPresetEntity.BAND_COUNT) { 0.12f }
             while (isActive) {
                 val sysVol = readSystemMusicVolumeFraction()
                 _systemVolumePercent.value = (sysVol * 100f).roundToInt()
@@ -432,23 +433,19 @@ class AudioDspEngine(
                     var maxVal = 0f
                     var maxIdx = 2
                     val volFactor = (0.30f + sysVol * 0.70f)
-                    val bins = List(24) { idx ->
+                    val bins = List(EqPresetEntity.BAND_COUNT) { idx ->
                         if (!active) {
                             idlePeaks[idx] = (idlePeaks[idx] - 0.02f).coerceAtLeast(0.05f)
                             0.04f
                         } else {
-                            val bandPos = (idx / 23f) * 9f
-                            val lowIdx = bandPos.toInt().coerceIn(0, 9)
-                            val highIdx = min(9, lowIdx + 1)
-                            val frac = bandPos - lowIdx
-                            val db = bands[lowIdx] * (1f - frac) + bands[highIdx] * frac
-                            val bassBump = if (idx < 6) (bassStrength / 100f) * 0.22f * (1f - idx / 6f) else 0f
-                            val spatialAir = if (idx >= 16) (spatialAmount / 100f) * 0.14f else 0f
+                            val db = bands.getOrElse(idx) { 0f }
+                            val bassBump = if (idx < 9) (bassStrength / 100f) * 0.22f * (1f - idx / 9f) else 0f
+                            val spatialAir = if (idx >= 21) (spatialAmount / 100f) * 0.14f else 0f
                             val normalized = ((db + 15f) / 30f).coerceIn(0.08f, 0.94f)
                             val pulseAmp = if (musicActive) 0.22f * volFactor else 0.08f * volFactor
                             val harmonic = pulseAmp * (
-                                0.65f * abs(sin((tick + idx * 0.52f).toDouble())) +
-                                    0.35f * abs(cos((tick * 1.4f - idx * 0.31f).toDouble()))
+                                0.65f * abs(sin((tick + idx * 0.42f).toDouble())) +
+                                    0.35f * abs(cos((tick * 1.4f - idx * 0.25f).toDouble()))
                                 ).toFloat()
                             val level = ((normalized * 0.62f + bassBump + spatialAir) * volFactor + harmonic)
                                 .coerceIn(0.06f, 0.96f)
@@ -467,10 +464,14 @@ class AudioDspEngine(
                     _spectrumBins.value = bins
                     _peakHoldBins.value = idlePeaks.toList()
 
-                    // Synthesize real-time 64-point oscilloscope waveform responding to system audio levels & EQ
-                    val subDrive = if (active) (bassStrength / 100f) * 0.42f + ((bands[0] + bands[1]) / 30f) * 0.25f else 0f
-                    val midDrive = if (active) ((bands[4] + bands[5]) / 30f) * 0.25f + 0.25f else 0f
-                    val highDrive = if (active) ((bands[8] + bands[9]) / 30f) * 0.18f + (spatialAmount / 100f) * 0.15f else 0f
+                    // Synthesize real-time 64-point oscilloscope waveform responding to system audio levels & 31-band EQ
+                    val subAvg = (0..8).map { bands.getOrElse(it) { 0f } }.average().toFloat()
+                    val midAvg = (9..20).map { bands.getOrElse(it) { 0f } }.average().toFloat()
+                    val highAvg = (21..30).map { bands.getOrElse(it) { 0f } }.average().toFloat()
+
+                    val subDrive = if (active) (bassStrength / 100f) * 0.42f + (subAvg / 15f) * 0.25f else 0f
+                    val midDrive = if (active) (midAvg / 15f) * 0.25f + 0.25f else 0f
+                    val highDrive = if (active) (highAvg / 15f) * 0.18f + (spatialAmount / 100f) * 0.15f else 0f
                     val ampScale = if (!active) 0f else if (musicActive) (0.45f + sysVol * 0.55f) else (0.22f + sysVol * 0.38f)
 
                     val wave = List(64) { w ->
@@ -496,7 +497,7 @@ class AudioDspEngine(
                         0.04f to 0.04f
                     }
 
-                    _dominantFreqHz.value = if (active) binCenterFreqsHz[maxIdx] else 0
+                    _dominantFreqHz.value = if (active) binCenterFreqsHz.getOrElse(maxIdx) { 125 } else 0
                     val activeDb = -28f + (sysVol * 22f) + (preampDb * 0.6f) + (if (musicActive) 3.5f else 0f)
                     _peakDb.value = if (active) activeDb.coerceIn(-48f, 3.0f) else -48.0f
                     tick += if (musicActive) 0.48f else 0.26f

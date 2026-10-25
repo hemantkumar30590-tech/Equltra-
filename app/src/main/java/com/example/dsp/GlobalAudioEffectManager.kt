@@ -72,7 +72,7 @@ class GlobalAudioEffectManager private constructor(private val appContext: Conte
     private var isMasterEnabled: Boolean = true
 
     @Volatile
-    private var currentBandsDb: FloatArray = FloatArray(10) { 0f }
+    private var currentBandsDb: FloatArray = FloatArray(EqPresetEntity.BAND_COUNT) { 0f }
 
     @Volatile
     private var bassStrength: Int = 78 // 0..100
@@ -92,7 +92,7 @@ class GlobalAudioEffectManager private constructor(private val appContext: Conte
     @Volatile
     private var softLimiterEnabled: Boolean = true
 
-    private val _statusText = MutableStateFlow("Global YouTube & System DSP Active (10-Band DynamicsProcessing)")
+    private val _statusText = MutableStateFlow("Global YouTube & System DSP Active (31-Band DynamicsProcessing)")
     val statusText: StateFlow<String> = _statusText.asStateFlow()
 
     private val _isExternalMediaPlaying = MutableStateFlow(false)
@@ -211,29 +211,27 @@ class GlobalAudioEffectManager private constructor(private val appContext: Conte
     fun ensureSessionHooked(sessionId: Int, label: String = "") {
         val bundle = sessionBundles.getOrPut(sessionId) { SessionEffectBundle(sessionId) }
 
-        // 1. Android 9+ (API 28+) DynamicsProcessing: 10-Band PreEQ + 10-Band PostEQ + MBC + Limiter
+        // 1. Android 9+ (API 28+) DynamicsProcessing: 31-Band PreEQ + 31-Band PostEQ + MBC + Limiter
         // This is the #1 key to making YouTube work on modern Android 10–16 devices!
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && bundle.dynamicsProcessing == null) {
             runCatching {
+                val bandCount = EqPresetEntity.BAND_COUNT
                 val builder = DynamicsProcessing.Config.Builder(
                     DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION,
                     2, // stereo channels
                     true, // preEqInUse
-                    10, // 10 PreEQ bands (31Hz..16kHz)
+                    bandCount, // 31 PreEQ bands (20Hz..20kHz)
                     true, // mbcInUse (Multi-band compressor for bass punch & clarity)
                     6, // 6 MBC bands
                     true, // postEqInUse
-                    10, // 10 PostEQ bands (31Hz..16kHz)
+                    bandCount, // 31 PostEQ bands (20Hz..20kHz)
                     true // limiterInUse
                 )
                 val config = builder.build()
 
-                // Configure cutoff frequencies for 10-band PreEQ and PostEQ
-                val cutoffHz = floatArrayOf(
-                    45f, 90f, 180f, 355f, 710f,
-                    1400f, 2800f, 5600f, 11200f, 20000f
-                )
-                for (b in 0 until 10) {
+                // Configure cutoff frequencies for 31-band ISO 1/3-octave PreEQ and PostEQ
+                val cutoffHz = EqPresetEntity.FREQUENCY_HZ
+                for (b in 0 until bandCount) {
                     val eqBand = DynamicsProcessing.EqBand(true, cutoffHz[b], 0f)
                     config.setPreEqBandAllChannelsTo(b, eqBand)
                     config.setPostEqBandAllChannelsTo(b, eqBand)
@@ -323,9 +321,10 @@ class GlobalAudioEffectManager private constructor(private val appContext: Conte
         limiter: Boolean
     ) {
         isMasterEnabled = enabled
-        val copy = FloatArray(10)
-        for (i in 0 until 10) {
-            copy[i] = bandsDb.getOrElse(i) { 0f }.coerceIn(-15f, 15f)
+        val interpolated = EqPresetEntity.interpolateTo31Bands(bandsDb)
+        val copy = FloatArray(EqPresetEntity.BAND_COUNT)
+        for (i in 0 until EqPresetEntity.BAND_COUNT) {
+            copy[i] = interpolated[i].coerceIn(-15f, 15f)
         }
         currentBandsDb = copy
         bassStrength = bass.coerceIn(0, 100)
@@ -350,34 +349,27 @@ class GlobalAudioEffectManager private constructor(private val appContext: Conte
         val preamp = preampDb
         val limit = softLimiterEnabled
 
-        // Sub-bass extra shelf in dB from the Bass Boost knob (0..100% -> 0..+9.5 dB on 31Hz/62Hz/125Hz)
-        val subBoostDb31 = if (active) (bass / 100f) * 9.5f else 0f
-        val subBoostDb62 = if (active) (bass / 100f) * 7.5f else 0f
-        val subBoostDb125 = if (active) (bass / 100f) * 4.5f else 0f
+        // Sub-bass extra shelf in dB from the Bass Boost knob across 20Hz..125Hz (bands 0..8)
+        val maxSubBoostDb = if (active) (bass / 100f) * 9.5f else 0f
 
-        // Spatial 3D presence air shelf on upper bands when Spatial > 0
+        // Spatial 3D presence air shelf on upper bands (4kHz..20kHz, bands 23..30) when Spatial > 0
         val spatialAirDb = if (active) (spatial / 100f) * 3.5f else 0f
 
         sessionBundles.values.forEach { bundle ->
-            // 1. Apply 10-band EQ + Bass Boost + Spatial + Preamp to DynamicsProcessing (API 28+)
+            // 1. Apply 31-band EQ + Bass Boost + Spatial + Preamp to DynamicsProcessing (API 28+)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 runCatching {
                     bundle.dynamicsProcessing?.let { dp ->
                         dp.enabled = active
-                        val cutoffHz = floatArrayOf(
-                            45f, 90f, 180f, 355f, 710f,
-                            1400f, 2800f, 5600f, 11200f, 20000f
-                        )
-                        for (b in 0 until 10) {
-                            val extraBass = when (b) {
-                                0 -> subBoostDb31
-                                1 -> subBoostDb62
-                                2 -> subBoostDb125
-                                else -> 0f
-                            }
-                            val extraAir = if (b >= 7) spatialAirDb else 0f
+                        val cutoffHz = EqPresetEntity.FREQUENCY_HZ
+                        val bandCount = EqPresetEntity.BAND_COUNT
+                        for (b in 0 until bandCount) {
+                            val extraBass = if (b <= 8) {
+                                maxSubBoostDb * (1f - (b / 10f))
+                            } else 0f
+                            val extraAir = if (b >= 23) spatialAirDb else 0f
                             val totalBandDb = if (active) {
-                                (bands[b] + extraBass + extraAir).coerceIn(-18f, 18f)
+                                (bands.getOrElse(b) { 0f } + extraBass + extraAir).coerceIn(-18f, 18f)
                             } else 0f
 
                             // Split gain across PreEQ (55%) and PostEQ (45%) for clean headroom
@@ -437,15 +429,13 @@ class GlobalAudioEffectManager private constructor(private val appContext: Conte
                     val range = eq.bandLevelRange
                     val minMb = range[0].toInt()
                     val maxMb = range[1].toInt()
+                    val maxIdx = EqPresetEntity.BAND_COUNT - 1
                     for (b in 0 until numBands) {
-                        val mappedIdx = ((b.toFloat() / max(1, numBands - 1)) * 9f).roundToInt().coerceIn(0, 9)
-                        val extraBass = when (mappedIdx) {
-                            0 -> subBoostDb31 * 0.6f
-                            1 -> subBoostDb62 * 0.6f
-                            2 -> subBoostDb125 * 0.5f
-                            else -> 0f
-                        }
-                        val targetDb = if (active) (bands[mappedIdx] + extraBass) else 0f
+                        val mappedIdx = ((b.toFloat() / max(1, numBands - 1)) * maxIdx).roundToInt().coerceIn(0, maxIdx)
+                        val extraBass = if (mappedIdx <= 8) {
+                            maxSubBoostDb * 0.6f * (1f - mappedIdx / 10f)
+                        } else 0f
+                        val targetDb = if (active) (bands.getOrElse(mappedIdx) { 0f } + extraBass) else 0f
                         val targetMb = (targetDb * 100f).toInt().coerceIn(minMb, maxMb).toShort()
                         eq.setBandLevel(b.toShort(), targetMb)
                     }
@@ -512,9 +502,9 @@ class GlobalAudioEffectManager private constructor(private val appContext: Conte
         _statusText.value = when {
             !isMasterEnabled -> "DSP Bypassed • Tap Power to Enable on YouTube & Apps"
             externalPlaying && hasDp ->
-                "YouTube / Media Stream Hooked! (10-Band DynamicsProcessing • $count Session${if (count > 1) "s" else ""})"
+                "YouTube / Media Stream Hooked! (31-Band DynamicsProcessing • $count Session${if (count > 1) "s" else ""})"
             hasDp ->
-                "Global YouTube & System Hook Active (10-Band DynamicsProcessing + Session 0)"
+                "Global YouTube & System Hook Active (31-Band DynamicsProcessing + Session 0)"
             hasEq ->
                 "Global Hardware AudioFX Hook Active ($count Session${if (count > 1) "s" else ""})"
             else ->

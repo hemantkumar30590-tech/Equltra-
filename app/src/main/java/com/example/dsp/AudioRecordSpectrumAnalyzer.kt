@@ -237,8 +237,8 @@ class AudioRecordSpectrumAnalyzer(private val scope: CoroutineScope) {
                     val domHz = ((maxBinIdx.toFloat() * SAMPLE_RATE) / FFT_SIZE).toInt()
                     _dominantFrequencyHz.value = if (maxMag > 0.002f) domHz else 0
 
-                    val minFreq = 31.0
-                    val maxFreq = 16000.0
+                    val minFreq = 20.0
+                    val maxFreq = 20000.0
                     val logMin = ln(minFreq)
                     val logMax = ln(maxFreq)
 
@@ -257,15 +257,16 @@ class AudioRecordSpectrumAnalyzer(private val scope: CoroutineScope) {
                         val rawDb = 20f * log10(binEnergy.coerceAtLeast(0.00005f))
                         val normInput = ((rawDb + 68f) / 58f).coerceIn(0.04f, 1.0f)
 
-                        // Apply live 10-band EQ + Bass Boost transfer function
-                        val eqPos = (b.toFloat() / (NUM_BINS - 1)) * 9f
-                        val eqIdx0 = eqPos.toInt().coerceIn(0, 9)
-                        val eqIdx1 = min(9, eqIdx0 + 1)
+                        // Apply live 31-band EQ + Bass Boost transfer function (aligned 1:1 with 31 bins)
+                        val maxBandIdx = (bandsDb.size - 1).coerceAtLeast(1)
+                        val eqPos = (b.toFloat() / (NUM_BINS - 1)) * maxBandIdx
+                        val eqIdx0 = eqPos.toInt().coerceIn(0, maxBandIdx)
+                        val eqIdx1 = min(maxBandIdx, eqIdx0 + 1)
                         val frac = eqPos - eqIdx0
                         val userEqDb = if (active) {
                             bandsDb[eqIdx0] * (1f - frac) + bandsDb[eqIdx1] * frac
                         } else 0f
-                        val bassShelfDb = if (active && b < 6) (bassBoost / 100f) * 6.0f * (1f - b / 6f) else 0f
+                        val bassShelfDb = if (active && b < 9) (bassBoost / 100f) * 6.0f * (1f - b / 9f) else 0f
                         val totalEqGainLinear = 10.0.pow(((userEqDb + bassShelfDb) / 28.0).toDouble()).toFloat()
 
                         val eqBaseline = ((userEqDb + 15f) / 30f) * 0.22f
@@ -318,7 +319,7 @@ class AudioRecordSpectrumAnalyzer(private val scope: CoroutineScope) {
         audioRecord = null
         systemVisualizer = null
         _dominantFrequencyHz.value = 0
-        onStatusChanged("System DSP Ready (Session 0 + 10-Band Biquad Core)")
+        onStatusChanged("System DSP Ready (Session 0 + 31-Band ISO Core)")
     }
 
     /**
@@ -377,7 +378,7 @@ class AudioRecordSpectrumAnalyzer(private val scope: CoroutineScope) {
     companion object {
         const val SAMPLE_RATE = 44100
         const val FFT_SIZE = 1024
-        const val NUM_BINS = 24
+        const val NUM_BINS = 31
         const val WAVEFORM_POINTS = 64
     }
 }

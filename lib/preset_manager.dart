@@ -3,11 +3,12 @@ import 'dart:math' as math;
 import 'package:hive_flutter/hive_flutter.dart';
 
 class SoundProfile {
+  static const int bandCount = 31;
   final String id;
   final String name;
   final String category; // 'Studio', 'Device', 'Imported', 'Custom'
   final String description;
-  final List<double> bands; // 10-band gains in dB (-15.0 to +15.0)
+  final List<double> _rawBands; // 31-band (or 10-band interpolated) gains in dB (-15.0 to +15.0)
   final double bassBoost; // 0 to 100
   final double reverb; // 0 to 100
   final String reverbRoom;
@@ -21,7 +22,7 @@ class SoundProfile {
     required this.name,
     this.category = 'Custom',
     this.description = 'Custom user sound profile',
-    required this.bands,
+    required List<double> bands,
     this.bassBoost = 0.0,
     this.reverb = 0.0,
     this.reverbRoom = 'Small Room',
@@ -29,16 +30,42 @@ class SoundProfile {
     this.preampDb = 0.0,
     this.isBuiltIn = false,
     this.createdAtMs = 0,
-  });
+  }) : _rawBands = bands;
 
-  double get bassSummaryDb =>
-      double.parse(((bands[0] + bands[1] + bands[2]) / 3.0).toStringAsFixed(1));
+  List<double> get bands => interpolateTo31(_rawBands);
 
-  double get midSummaryDb => double.parse(
-      ((bands[3] + bands[4] + bands[5] + bands[6]) / 4.0).toStringAsFixed(1));
+  static List<double> interpolateTo31(List<double> src) {
+    if (src.isEmpty) return List<double>.filled(bandCount, 0.0);
+    if (src.length == bandCount) {
+      return src.map((v) => v.clamp(-15.0, 15.0)).toList();
+    }
+    return List<double>.generate(bandCount, (i) {
+      final pos = (i / (bandCount - 1)) * (src.length - 1);
+      final lo = pos.floor().clamp(0, src.length - 1);
+      final hi = pos.ceil().clamp(0, src.length - 1);
+      final t = pos - lo;
+      final val = src[lo] * (1.0 - t) + src[hi] * t;
+      return double.parse(val.clamp(-15.0, 15.0).toStringAsFixed(1));
+    });
+  }
 
-  double get trebleSummaryDb =>
-      double.parse(((bands[7] + bands[8] + bands[9]) / 3.0).toStringAsFixed(1));
+  double get bassSummaryDb {
+    final b = bands;
+    final avg = b.sublist(0, 9).reduce((a, c) => a + c) / 9.0;
+    return double.parse(avg.toStringAsFixed(1));
+  }
+
+  double get midSummaryDb {
+    final b = bands;
+    final avg = b.sublist(9, 21).reduce((a, c) => a + c) / 12.0;
+    return double.parse(avg.toStringAsFixed(1));
+  }
+
+  double get trebleSummaryDb {
+    final b = bands;
+    final avg = b.sublist(21, 31).reduce((a, c) => a + c) / 10.0;
+    return double.parse(avg.toStringAsFixed(1));
+  }
 
   String toExportJson() {
     final map = {

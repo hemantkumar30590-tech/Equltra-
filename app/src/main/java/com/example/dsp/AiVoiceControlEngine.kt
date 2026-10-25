@@ -345,12 +345,12 @@ class AiVoiceControlEngine(
                             actions = actions
                         )
                     }
-                    lower.contains("10") || lower.contains("band") || lower.contains("equalizer") || lower.contains("home") -> {
-                        actions.add(VoiceControlAction.SelectTab(0, "10-Band EQ"))
+                    lower.contains("31") || lower.contains("10") || lower.contains("band") || lower.contains("equalizer") || lower.contains("home") -> {
+                        actions.add(VoiceControlAction.SelectTab(0, "31-Band EQ"))
                         return ParsedVoiceCommandResult(
                             spokenTranscript = clean,
-                            actionTitle = "Opened 10-Band EQ Tab",
-                            spokenFeedback = "Opening 10 Band Equalizer tab.",
+                            actionTitle = "Opened 31-Band EQ Tab",
+                            spokenFeedback = "Opening 31 Band Studio Equalizer tab.",
                             actions = actions
                         )
                     }
@@ -383,7 +383,7 @@ class AiVoiceControlEngine(
                 return ParsedVoiceCommandResult(
                     spokenTranscript = clean,
                     actionTitle = "Synced YouTube & System Audio Hook",
-                    spokenFeedback = "YouTube and global 10 band D S P session hooked.",
+                    spokenFeedback = "YouTube and global 31 band D S P session hooked.",
                     actions = actions
                 )
             }
@@ -431,8 +431,8 @@ class AiVoiceControlEngine(
                 actions.add(VoiceControlAction.ResetFlat)
                 return ParsedVoiceCommandResult(
                     spokenTranscript = clean,
-                    actionTitle = "Reset to Flat 0.0 dB Studio Reference",
-                    spokenFeedback = "All 10 equalizer bands reset to flat studio reference.",
+                    actionTitle = "Reset All 31 Bands to Flat 0.0 dB",
+                    spokenFeedback = "All 31 equalizer bands reset to flat studio reference.",
                     actions = actions
                 )
             }
@@ -462,7 +462,7 @@ class AiVoiceControlEngine(
                 return ParsedVoiceCommandResult(
                     spokenTranscript = clean,
                     actionTitle = "Applied Device Preset: ${matchedDevice.name}",
-                    spokenFeedback = "Applied ${matchedDevice.name} 10 band Auto E Q preset.",
+                    spokenFeedback = "Applied ${matchedDevice.name} 31 band Auto E Q preset.",
                     actions = actions
                 )
             }
@@ -470,34 +470,37 @@ class AiVoiceControlEngine(
             // 7. Extract numeric values for Bass Boost, Spatial 3D, Reverb, Preamp, or specific Hz bands
             val numberRegex = Regex("""(-?\d+(?:\.\d+)?)""")
             val allNumbers = numberRegex.findAll(lower).mapNotNull { it.groupValues[1].toFloatOrNull() }.toList()
+            val base31 = EqPresetEntity.interpolateTo31Bands(currentBands).toMutableList()
 
             // Check Bass Boost voice control
             if (lower.contains("bass") && !lower.contains("ai ") && !lower.contains("punjabi") && !lower.contains("phonk")) {
                 when {
                     lower.contains("full") || lower.contains("max") || lower.contains("100") -> {
                         actions.add(VoiceControlAction.SetBassBoost(100))
-                        val boostedBands = currentBands.toMutableList()
-                        boostedBands[0] = 8.5f
-                        boostedBands[1] = 7.5f
-                        boostedBands[2] = 4.5f
-                        actions.add(VoiceControlAction.ApplyCurveOffsets("Sub-Bass Max", boostedBands))
-                        summaries.add("Bass 100% + Sub-Bass Boost")
-                        spokenReply = "Maximum bass boost 100 percent with sub bass shelf applied."
+                        val boostedBands = base31.toMutableList()
+                        for (b in 0..8) {
+                            boostedBands[b] = (8.5f - b * 0.5f).coerceIn(-15f, 15f)
+                        }
+                        actions.add(VoiceControlAction.ApplyCurveOffsets("Sub-Bass Max (20–125Hz)", boostedBands))
+                        summaries.add("Bass 100% + 20–125Hz Sub-Bass Shelf")
+                        spokenReply = "Maximum bass boost 100 percent with 20 to 125 hertz sub bass shelf applied."
                     }
                     lower.contains("badhao") || lower.contains("increase") || lower.contains("more") || lower.contains("up") || lower.contains("zyada") -> {
                         actions.add(VoiceControlAction.AdjustBassBoost(20))
-                        val boostedBands = currentBands.toMutableList()
-                        boostedBands[0] = (boostedBands[0] + 3.0f).coerceIn(-15f, 15f)
-                        boostedBands[1] = (boostedBands[1] + 2.5f).coerceIn(-15f, 15f)
+                        val boostedBands = base31.toMutableList()
+                        for (b in 0..6) {
+                            boostedBands[b] = (boostedBands[b] + 3.0f - b * 0.25f).coerceIn(-15f, 15f)
+                        }
                         actions.add(VoiceControlAction.ApplyCurveOffsets("Bass +20%", boostedBands))
-                        summaries.add("Bass Boost +20% & 31-62Hz +3dB")
+                        summaries.add("Bass Boost +20% & 20–80Hz +3dB")
                         spokenReply = "Increased bass boost by 20 percent and lifted sub bass."
                     }
                     lower.contains("kam") || lower.contains("decrease") || lower.contains("less") || lower.contains("down") || lower.contains("reduce") -> {
                         actions.add(VoiceControlAction.AdjustBassBoost(-20))
-                        val cutBands = currentBands.toMutableList()
-                        cutBands[0] = (cutBands[0] - 2.5f).coerceIn(-15f, 15f)
-                        cutBands[1] = (cutBands[1] - 2.0f).coerceIn(-15f, 15f)
+                        val cutBands = base31.toMutableList()
+                        for (b in 0..6) {
+                            cutBands[b] = (cutBands[b] - 2.5f).coerceIn(-15f, 15f)
+                        }
                         actions.add(VoiceControlAction.ApplyCurveOffsets("Bass -20%", cutBands))
                         summaries.add("Bass Boost -20%")
                         spokenReply = "Reduced bass boost by 20 percent."
@@ -567,16 +570,16 @@ class AiVoiceControlEngine(
                 }
             }
 
-            // Check Treble / Vocal quick voice shaping
+            // Check Treble / Vocal quick voice shaping across bands 23..30 (4kHz..20kHz)
             if ((lower.contains("treble") || lower.contains("highs")) && actions.isEmpty()) {
-                val updated = currentBands.toMutableList()
+                val updated = base31.toMutableList()
                 val delta = if (lower.contains("kam") || lower.contains("reduce") || lower.contains("down")) -3.5f else 4.0f
-                updated[7] = (updated[7] + delta).coerceIn(-15f, 15f)
-                updated[8] = (updated[8] + delta).coerceIn(-15f, 15f)
-                updated[9] = (updated[9] + delta).coerceIn(-15f, 15f)
+                for (b in 23..30) {
+                    updated[b] = (updated[b] + delta).coerceIn(-15f, 15f)
+                }
                 actions.add(VoiceControlAction.ApplyCurveOffsets("Voice Treble Tune", updated))
-                summaries.add("Treble (4k–16kHz) ${if (delta > 0) "+4.0dB" else "-3.5dB"}")
-                spokenReply = if (delta > 0) "Boosted treble air frequencies." else "Reduced high treble frequencies."
+                summaries.add("Treble (4k–20kHz) ${if (delta > 0) "+4.0dB" else "-3.5dB"}")
+                spokenReply = if (delta > 0) "Boosted treble air frequencies from 4 kilohertz to 20 kilohertz." else "Reduced high treble frequencies."
             }
 
             if (actions.isNotEmpty()) {
@@ -597,12 +600,12 @@ class AiVoiceControlEngine(
                 return ParsedVoiceCommandResult(
                     spokenTranscript = clean,
                     actionTitle = "Applied Preset: ${matchedSaved.name}",
-                    spokenFeedback = "Applied ${matchedSaved.name} preset.",
+                    spokenFeedback = "Applied ${matchedSaved.name} 31 band preset.",
                     actions = actions
                 )
             }
 
-            // 9. Otherwise: Route to AI-Based Auto-EQ Preset System (Gemini 3.5 Flash + Acoustic DSP AI)!
+            // 9. Otherwise: Route to AI-Based Auto-EQ Preset System (Gemini 2.5 Flash + 31-Band Acoustic DSP AI)!
             actions.add(
                 VoiceControlAction.RunAiAutoEq(
                     prompt = clean,
@@ -612,7 +615,7 @@ class AiVoiceControlEngine(
             return ParsedVoiceCommandResult(
                 spokenTranscript = clean,
                 actionTitle = "AI Voice Auto-EQ: \"$clean\"",
-                spokenFeedback = "Tuning 10 band A I Auto E Q and D S P for $clean.",
+                spokenFeedback = "Tuning 31 band A I Auto E Q and D S P for $clean.",
                 actions = actions,
                 requiresProUnlock = true
             )

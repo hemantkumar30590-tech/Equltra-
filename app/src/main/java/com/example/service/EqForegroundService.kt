@@ -164,7 +164,7 @@ class EqForegroundService : Service() {
         }
 
         val statusBody =
-            "10-Band DynamicsProcessing • Bass ${profile.bassBoostStrength}% • Spatial ${profile.spatialLevel}%"
+            "31-Band DynamicsProcessing • Bass ${profile.bassBoostStrength}% • Spatial ${profile.spatialLevel}%"
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
@@ -201,7 +201,7 @@ class EqForegroundService : Service() {
                 "Equltra Background DSP Engine",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Keeps Equltra 10-band equalizer active on YouTube and other apps"
+                description = "Keeps Equltra 31-band equalizer active on YouTube and other apps"
                 setShowBadge(false)
             }
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

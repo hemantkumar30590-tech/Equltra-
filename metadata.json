@@ -1,6 +1,6 @@
 {
   "name": "Equltra",
-  "description": "Equltra - 10-Band System-wide EQ with YouTube Hook, Bass Boost, Reverb & Spatial DSP.",
+  "description": "Equltra - 31-Band ISO 1/3-Octave System-wide EQ with YouTube Hook, AI Auto-EQ PRO, Voice Control, Bass Boost & Spatial DSP.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

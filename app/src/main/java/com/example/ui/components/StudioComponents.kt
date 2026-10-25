@@ -868,38 +868,59 @@ fun VerticalEqBandFader(
     onGainChanged: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val zoneColor = when {
+        bandIndex <= 4 -> NeonMagenta // Sub-Bass (20–50Hz)
+        bandIndex <= 9 -> StudioAmber // Bass (63–160Hz)
+        bandIndex <= 16 -> SignalEmerald // Low-Mids (200–800Hz)
+        bandIndex <= 22 -> ElectricCyan // High-Mids (1k–3.15kHz)
+        else -> HyperViolet // Treble & Air (4k–20kHz)
+    }
+
     val activeColor = when {
         !isEnabled -> TextMuted
         gainDb > 5.0f -> NeonMagenta
         gainDb < -5.0f -> HyperViolet
+        gainDb != 0f -> zoneColor
         else -> ElectricCyan
     }
 
     Column(
         modifier = modifier
-            .width(54.dp)
+            .width(52.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(ObsidianCard)
-            .border(1.dp, ObsidianBorder, RoundedCornerShape(14.dp))
-            .padding(vertical = 8.dp, horizontal = 4.dp),
+            .border(
+                1.dp,
+                if (gainDb != 0f && isEnabled) activeColor.copy(alpha = 0.55f) else ObsidianBorder,
+                RoundedCornerShape(14.dp)
+            )
+            .padding(vertical = 7.dp, horizontal = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // Band number badge (#01 .. #31)
+        Text(
+            text = String.format(Locale.US, "B%02d", bandIndex + 1),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+            color = if (isEnabled) zoneColor.copy(alpha = 0.85f) else TextMuted,
+            fontWeight = FontWeight.Bold
+        )
+
         // dB readout at top
         Text(
             text = String.format(Locale.US, "%+.1f", gainDb),
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
             color = if (gainDb != 0f && isEnabled) TextPrimary else TextSecondary,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center
         )
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         // Interactive vertical studio fader track (drag or tap)
         Box(
             modifier = Modifier
                 .width(44.dp)
-                .height(176.dp)
+                .height(172.dp)
                 .minimumInteractiveComponentSize()
                 .testTag("band_slider_$bandIndex")
                 .pointerInput(bandIndex, isEnabled) {
@@ -915,7 +936,7 @@ fun VerticalEqBandFader(
                 .clickable(
                     onClickLabel = "Reset $frequencyLabel band to 0 dB"
                 ) {
-                    // Single tap cycles or resets to 0dB if already boosted, or +3dB if at 0dB
+                    // Single tap resets to 0dB if already boosted/cut, or +3dB if at 0dB
                     if (gainDb != 0f) onGainChanged(0f) else onGainChanged(3.0f)
                 },
             contentAlignment = Alignment.Center
@@ -987,15 +1008,16 @@ fun VerticalEqBandFader(
             }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(5.dp))
 
         // Frequency label at bottom
         Text(
             text = frequencyLabel,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-            color = ElectricCyan,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+            color = zoneColor,
             fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
+            maxLines = 1
         )
     }
 }
